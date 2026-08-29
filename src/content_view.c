@@ -1149,6 +1149,7 @@ static struct {
     wchar_t location[MAX_PATH];
     wchar_t size[32];
     wchar_t modified[32];
+    wchar_t path[MAX_PATH];
 } propInfo;
 
 static INT_PTR CALLBACK PropertiesDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -1166,11 +1167,29 @@ static INT_PTR CALLBACK PropertiesDialogProc(HWND hwndDlg, UINT msg, WPARAM wPar
             SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_LOCATION), propInfo.location);
             SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_SIZE), propInfo.size);
             SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_MODIFIED), propInfo.modified);
+            DWORD attr = GetFileAttributesW(propInfo.path);
+            if (attr != INVALID_FILE_ATTRIBUTES) {
+                CheckDlgButton(hwndDlg, IDC_ATTR_READONLY, (attr & FILE_ATTRIBUTE_READONLY) ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(hwndDlg, IDC_ATTR_HIDDEN, (attr & FILE_ATTRIBUTE_HIDDEN) ? BST_CHECKED : BST_UNCHECKED);
+            }
             return (INT_PTR)TRUE;
         }
         case WM_COMMAND:
-            if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
-                EndDialog(hwndDlg, (INT_PTR)LOWORD(wParam));
+            if (LOWORD(wParam) == IDOK) {
+                DWORD attr = GetFileAttributesW(propInfo.path);
+                if (attr != INVALID_FILE_ATTRIBUTES) {
+                    if (IsDlgButtonChecked(hwndDlg, IDC_ATTR_READONLY)) attr |= FILE_ATTRIBUTE_READONLY;
+                    else attr &= ~FILE_ATTRIBUTE_READONLY;
+                    if (IsDlgButtonChecked(hwndDlg, IDC_ATTR_HIDDEN)) attr |= FILE_ATTRIBUTE_HIDDEN;
+                    else attr &= ~FILE_ATTRIBUTE_HIDDEN;
+                    if (attr == 0) attr = FILE_ATTRIBUTE_NORMAL;
+                    SetFileAttributesW(propInfo.path, attr);
+                }
+                EndDialog(hwndDlg, (INT_PTR)IDOK);
+                return (INT_PTR)TRUE;
+            }
+            if (LOWORD(wParam) == IDCANCEL) {
+                EndDialog(hwndDlg, (INT_PTR)IDCANCEL);
                 return (INT_PTR)TRUE;
             }
             break;
@@ -1184,6 +1203,7 @@ void onMenuItemPropertiesClick() {
 
     wchar_t path[MAX_PATH] = {0};
     getFileNodePath(node, path);
+    wcscpy_s(propInfo.path, MAX_PATH, path);
 
     wcscpy_s(propInfo.name, MAX_PATH, node->name);
 

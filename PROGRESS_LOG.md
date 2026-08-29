@@ -95,3 +95,10 @@ product, file/product version, and a GPL-3.0 + BrunoSX-origin copyright — with
 defined once in `include/resource.h` and shared by the resource and the About dialog. This
 fixes the empty Windows file-properties dialog and clears a reputation/ML antivirus
 false-positive that an unsigned, metadata-less executable was drawing.
+
+## 1.2.1 release
+Added **file attributes** to the Properties dialog (`IDD_PROPERTIES`): **Read-only** and
+**Hidden** checkboxes that reflect the file's current attributes on open and apply them via
+`SetFileAttributesW` on OK (Cancel leaves them untouched). Lets users protect config files
+(e.g. Unreal `Engine.ini`) so the game can't regenerate or delete them — Wine honors the
+read-only attribute for both writes and deletes. `APP_VERSION` -> **1.2.1**.
