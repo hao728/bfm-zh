@@ -128,6 +128,7 @@ INT_PTR CALLBACK FileActionDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPA
                 case ACTION_NONE:
                     return (INT_PTR)FALSE;
             }
+            SetWindowText(GetDlgItem(hwndDlg, IDCANCEL), lc_str.cancel);
             return (INT_PTR)TRUE;
         }
         case WM_TIMER: {

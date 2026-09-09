@@ -248,9 +248,17 @@ bool themeScrollbarsNeedRepaint(UINT msg) {
 static HFONT uiFont = NULL;
 HFONT getUIFont(void) {
     if (!uiFont) {
-        uiFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        // Segoe UI first; Tahoma fallback for Wine builds lacking Segoe UI.
+        // Tahoma first: narrower and sharper under Wine; Segoe UI as fallback
+        uiFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+                             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Tahoma");
+        if (!uiFont)
+            uiFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        if (!uiFont)
+            uiFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     }
     return uiFont;
 }
@@ -261,7 +269,16 @@ void GetWindowRectInParent(HWND hwnd, RECT* rect) {
 }
 
 INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {      
+    switch (msg) {
+        case WM_NOTIFY: {
+            // SysLink click: open repository URL in default browser
+            LPNMHDR pnmh = (LPNMHDR)lParam;
+            if (pnmh->idFrom == IDC_APP_REPO && pnmh->code == NM_CLICK) {
+                PNMLINK pNMLink = (PNMLINK)lParam;
+                ShellExecuteW(hwndDlg, L"open", pNMLink->item.szUrl, NULL, NULL, SW_SHOWNORMAL);
+            }
+            break;
+        }
         case WM_COMMAND: {
             switch (LOWORD(wParam)) {
                 case IDOK:
@@ -277,17 +294,27 @@ INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM l
             GetWindowRect(GetParent(hwndDlg), &rect);
             GetClientRect(hwndDlg, &rect1);
             SetWindowPos(hwndDlg, NULL, (rect.right + rect.left) / 2 - (rect1.right - rect1.left) / 2, (rect.bottom + rect.top) / 2 - (rect1.bottom - rect1.top) / 2, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
-            
+
             SetWindowText(hwndDlg, lc_str.about);
+            SetWindowText(GetDlgItem(hwndDlg, IDOK), lc_str.ok);
             SetWindowText(GetDlgItem(hwndDlg, IDC_APP_NAME), lc_str.app_name);
             SetWindowText(GetDlgItem(hwndDlg, IDC_APP_VERSION), lc_str.app_version);
             SetWindowText(GetDlgItem(hwndDlg, IDC_APP_DEV_NAME), lc_str.app_dev_name);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_APP_MODIFIER), lc_str.modifier);
             return (INT_PTR)TRUE;
         }
     }
 
     return (INT_PTR)FALSE;
 }
+
+// Defined in content_view.c; refreshes column headers and status bar after language switch
+extern void cvRefreshLanguage(void);
+extern void onMenuItemLoadISOImageClick(void);
+extern void onMenuItemUnloadISOImageClick(void);
+
+// Forward declaration: createMainMenu is defined later but called by mainMenuCommand
+static void createMainMenu();
 
 void mainMenuCommand(WPARAM wParam) {
     switch (LOWORD(wParam)) {
@@ -312,6 +339,18 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_FILE_EXIT:
             DestroyWindow(hwndMain);
             break;
+        case ID_LANG_EN:
+            loadLCStrings(L"en-US"); createMainMenu(); cvRefreshLanguage(); break;
+        case ID_LANG_ZH:
+            loadLCStrings(L"zh-CN"); createMainMenu(); cvRefreshLanguage(); break;
+        case ID_LANG_PT:
+            loadLCStrings(L"pt-BR"); createMainMenu(); cvRefreshLanguage(); break;
+        case ID_LANG_RU:
+            loadLCStrings(L"ru-RU"); createMainMenu(); cvRefreshLanguage(); break;
+        case ID_MOUNT_ISO:
+            onMenuItemLoadISOImageClick(); break;
+        case ID_UNMOUNT_ISO:
+            onMenuItemUnloadISOImageClick(); break;
         case ID_VIEW_LARGEICONS:
             setViewStyle(STYLE_LARGE_ICON);
             break;
@@ -332,6 +371,11 @@ void mainMenuCommand(WPARAM wParam) {
             if (hViewMenu) CheckMenuItem(hViewMenu, ID_VIEW_HIDDEN, MF_BYCOMMAND | (showHiddenFiles ? MF_CHECKED : MF_UNCHECKED));
             navigateRefresh();
             break;
+        case ID_NAV_BACK: navGoBack(); break;
+        case ID_NAV_FORWARD: navGoForward(); break;
+        case ID_NAV_RECENT: recentMenu(); break;
+        case ID_VIEW_GAME_MODE: onMenuItemGameModeClick(); break;
+        case ID_VIEW_COMPARE: onMenuItemComparePanesClick(); break;
     }
 }
 
@@ -467,6 +511,17 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             }
             break;
         }
+        case WM_APP + 77: {  // WM_FOLDERSIZE_DONE
+            unsigned long long sz = (unsigned long long)wParam;
+            wchar_t* path = (wchar_t*)lParam;
+            double mb = sz / 1048576.0;
+            wchar_t msg[512];
+            if (mb >= 1024) swprintf_s(msg, 512, L"%.2f GB\n%ls", mb / 1024.0, path ? path : L"");
+            else swprintf_s(msg, 512, L"%.2f MB\n%ls", mb, path ? path : L"");
+            MessageBoxW(hwnd, msg, lc_str.folder_size, MB_OK | MB_ICONINFORMATION);
+            if (path) free(path);
+            return 0;
+        }
         case WM_CLOSE: {
             if (MessageBox(NULL, lc_str.msg_confirm_exit_app, lc_str.confirm_exit, MB_YESNO | MB_ICONQUESTION) == IDYES) {
                 PostQuitMessage(0);
@@ -493,6 +548,8 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
 
 void navigateToFileNode(struct FileNode* node) {
     if (node) {
+        wchar_t p[MAX_PATH]={0}; getFileNodePath(node,p);
+        navPushHistory(p); recentAdd(p);
         clearAddrButtons();
         clearContentView();
         setCurrPathFileNode(node);
@@ -502,6 +559,7 @@ void navigateToFileNode(struct FileNode* node) {
 
 void navigateToPath(wchar_t* path) {
     if (path) {
+        navPushHistory(path); recentAdd(path);
         clearAddrButtons();
         clearContentView();   
         setCurrPathFromString(path);
@@ -539,9 +597,11 @@ void openFileNode(struct FileNode* node) {
 }
 
 static void createMainMenu() {
+    HMENU hmOld = GetMenu(hwndMain);
+
     HMENU hmFile = CreatePopupMenu();
     AppendMenu(hmFile, MF_STRING, ID_FILE_EXIT, lc_str.exit);
-    
+
     HMENU hmEdit = CreatePopupMenu();
     AppendMenu(hmEdit, MF_STRING, ID_EDIT_CUT, lc_str.cut);
     AppendMenu(hmEdit, MF_STRING, ID_EDIT_COPY, lc_str.copy);
@@ -549,7 +609,7 @@ static void createMainMenu() {
     AppendMenu(hmEdit, MF_STRING, ID_EDIT_PASTE_SHORTCUT, lc_str.paste_shortcut);
     AppendMenu(hmEdit, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmEdit, MF_STRING, ID_EDIT_SELECT_ALL, lc_str.select_all);
-    
+
     HMENU hmView = CreatePopupMenu();
     AppendMenu(hmView, MF_STRING, ID_VIEW_LARGEICONS, lc_str.large_icons);
     AppendMenu(hmView, MF_STRING, ID_VIEW_SMALLICONS, lc_str.small_icons);
@@ -558,18 +618,37 @@ static void createMainMenu() {
     AppendMenu(hmView, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmView, MF_STRING, ID_VIEW_SPLIT, lc_str.split_view);
     AppendMenu(hmView, MF_STRING, ID_VIEW_HIDDEN, lc_str.show_hidden);
+    AppendMenu(hmView, MF_SEPARATOR, 0, NULL);
+    AppendMenu(hmView, MF_STRING, ID_VIEW_GAME_MODE, lc_str.game_mode);
+    AppendMenu(hmView, MF_STRING, ID_VIEW_COMPARE, lc_str.compare_panes);
     hViewMenu = hmView;
+
+    HMENU hmNav = CreatePopupMenu();
+    AppendMenu(hmNav, MF_STRING, ID_NAV_BACK, lc_str.nav_back);
+    AppendMenu(hmNav, MF_STRING, ID_NAV_FORWARD, lc_str.nav_forward);
+    AppendMenu(hmNav, MF_SEPARATOR, 0, NULL);
+    AppendMenu(hmNav, MF_STRING, ID_NAV_RECENT, lc_str.recent_places);
+
+    HMENU hmLang = CreatePopupMenu();
+    AppendMenu(hmLang, MF_STRING, ID_LANG_EN, L"English");
+    AppendMenu(hmLang, MF_STRING, ID_LANG_ZH, L"\u4e2d\u6587");
+    AppendMenu(hmLang, MF_STRING, ID_LANG_PT, L"Portugues");
+    AppendMenu(hmLang, MF_STRING, ID_LANG_RU, L"Russian");
 
     HMENU hmHelp = CreatePopupMenu();
     AppendMenu(hmHelp, MF_STRING, ID_HELP_ABOUT, lc_str.about);
-    
+
     HMENU hmMain = CreateMenu();
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmFile, lc_str.file);
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmEdit, lc_str.edit);
+    AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmNav, lc_str.nav_menu);
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmView, lc_str.view);
+    AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmLang, lc_str.language);
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmHelp, lc_str.help);
-    
+
     SetMenu(hwndMain, hmMain);
+    DrawMenuBar(hwndMain);
+    if (hmOld) DestroyMenu(hmOld);
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int nCmdShow) {
@@ -578,10 +657,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     
     wchar_t localeName[16] = {0};
     GetSystemDefaultLocaleName(localeName, 16);
-    
-    loadLCStrings(localeName);
+    // Force Simplified Chinese; user can switch via Language menu
+    loadLCStrings(L"zh-CN");
 
     globalHInstance = hInstance;
+
+    // Initialize COM for OLE drag and drop
+    OleInitialize(NULL);  // OLE init required for drag-and-drop
 
     INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_BAR_CLASSES | ICC_PROGRESS_CLASS | ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES };
     InitCommonControlsEx(&icc);

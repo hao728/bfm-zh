@@ -1,4 +1,5 @@
 #include "main.h"
+#include <oleidl.h>
 
 #define COLUMN_NAME_IDX 0
 #define COLUMN_TYPE_IDX 1
@@ -61,8 +62,30 @@ struct ContextMenuItem {
     wchar_t* openFile;      // the file to hand to openExe (heap; freed with the item)
 };
 
-static void onMenuItemLoadISOImageClick();
-static void onMenuItemUnloadISOImageClick();
+void onMenuItemLoadISOImageClick();
+void onMenuItemUnloadISOImageClick();
+static void onMenuItemCopyPathClick();
+static void onMenuItemOpenCmdClick();
+static void startFileDrag(HWND hwnd);
+static void updateSelectedItems(void);
+static void onMenuItemNewTxtClick();
+static void onMenuItemNewBatClick();
+static void onMenuItemNewRegClick();
+static IDropTarget* createDropTarget(void);
+static void onMenuItemExtractIconClick(void);
+static void onMenuItemMD5Click(void);
+static void onMenuItemViewTextClick(void);
+static void onMenuItemBatchRenameClick(void);
+void onMenuItemGameModeClick(void);
+static void onMenuItemFolderSizeClick(void);
+void onMenuItemComparePanesClick(void);
+static void onMenuItemCopyToClick(void);
+static void onMenuItemMoveToClick(void);
+void recentMenu(void);
+void navGoBack(void);
+void navGoForward(void);
+void navPushHistory(wchar_t* path);
+void recentAdd(wchar_t* path);
 
 static struct ContextMenuItem cmiOpen = {NULL, &onMenuItemOpenClick, NULL};
 static struct ContextMenuItem cmiEdit = {NULL, &onMenuItemEditClick, NULL};
@@ -80,9 +103,31 @@ static struct ContextMenuItem cmiUnloadISOImage = {NULL, &onMenuItemUnloadISOIma
 static struct ContextMenuItem cmiOpenAsAdmin = {NULL, &onMenuItemOpenAsAdminClick, NULL};
 static struct ContextMenuItem cmiChooseProgram = {NULL, &onMenuItemOpenWithClick, NULL};
 static struct ContextMenuItem cmiProperties = {NULL, &onMenuItemPropertiesClick, NULL};
+static struct ContextMenuItem cmiCopyPath = {NULL, &onMenuItemCopyPathClick, NULL};
+static struct ContextMenuItem cmiOpenCmd = {NULL, &onMenuItemOpenCmdClick, NULL};
+static struct ContextMenuItem cmiNewTxt = {NULL, &onMenuItemNewTxtClick, NULL};
+static struct ContextMenuItem cmiNewBat = {NULL, &onMenuItemNewBatClick, NULL};
+static struct ContextMenuItem cmiNewReg = {NULL, &onMenuItemNewRegClick, NULL};
+static struct ContextMenuItem cmiExtractIcon = {NULL, &onMenuItemExtractIconClick, NULL};
+static struct ContextMenuItem cmiMD5 = {NULL, &onMenuItemMD5Click, NULL};
+static struct ContextMenuItem cmiViewText = {NULL, &onMenuItemViewTextClick, NULL};
+static struct ContextMenuItem cmiBatchRename = {NULL, &onMenuItemBatchRenameClick, NULL};
+static struct ContextMenuItem cmiFolderSize = {NULL, &onMenuItemFolderSizeClick, NULL};
+static struct ContextMenuItem cmiCopyTo = {NULL, &onMenuItemCopyToClick, NULL};
+static struct ContextMenuItem cmiMoveTo = {NULL, &onMenuItemMoveToClick, NULL};
 
 static WNDPROC OrigWndProc;
+
+// OLE drag and drop state
+static POINT dragStartPt = {0};
+static bool dragPending = false;
+static int hoveredItem = -1;
+static IDropTarget* g_dropTarget = NULL;
+static HWND g_dropHwnd = NULL;
+static bool gameMode = false;
 static HMENU hContextMenu;
+#define MAX_MENU_IDS 256
+static struct ContextMenuItem* menuById[MAX_MENU_IDS];
 
 static struct Pane panes[NUM_PANES] = {0};
 static int activeIdx = 0;
@@ -185,12 +230,12 @@ static void updatePaneLabel(struct Pane* p) {
 static int folderIconCached = 0;
 static int folderIconIndex = 0;
 
-#define EXT_ICON_CACHE_SIZE 64
+#define EXT_ICON_CACHE_SIZE 256
 static struct { wchar_t ext[24]; int icon; wchar_t typeName[64]; } extIconCache[EXT_ICON_CACHE_SIZE];
 static int extIconCacheCount = 0;
 
 // .exe/.lnk carry per-file embedded icons, so they can't share an extension entry — cache by path.
-#define EXE_ICON_CACHE_SIZE 64
+#define EXE_ICON_CACHE_SIZE 256
 static struct { wchar_t path[MAX_PATH]; int icon; } exeIconCache[EXE_ICON_CACHE_SIZE];
 static int exeIconCacheCount = 0;
 
@@ -239,13 +284,41 @@ static void fillFileInfo(struct FileNode* node, struct ListItem* item) {
 }
 
 static void updateStatusbar(struct Pane* p) {
-    // The single status bar reflects the active pane only.
     if (p != activePane()) return;
     wchar_t sizeStr[32] = {0};
     formatFileSize(p->totalSize, sizeStr);
-    wchar_t statusText[96] = {0};
-    swprintf_s(statusText, 96, L"%d %ls    %ls", p->numItems, lc_str.items, sizeStr);
-    setStatusbarText(statusText);
+
+    // Memory usage
+    wchar_t memStr[48] = {0};
+    MEMORYSTATUSEX msx = {0};
+    msx.dwLength = sizeof(msx);
+    if (GlobalMemoryStatusEx(&msx)) {
+        wchar_t used[16], total[16];
+        formatFileSize(msx.ullTotalPhys - msx.ullAvailPhys, used);
+        formatFileSize(msx.ullTotalPhys, total);
+        swprintf_s(memStr, 48, L"  |  %ls: %ls/%ls", lc_str.memory, used, total);
+    }
+
+    // Free space of current drive
+    wchar_t freeStr[48] = {0};
+    if (currPathFileNode) {
+        wchar_t path[MAX_PATH] = {0};
+        getFileNodePath(currPathFileNode, path);
+        if (wcslen(path) == 2 && path[1] == L':') wcscat_s(path, MAX_PATH, L"\\");
+        ULARGE_INTEGER fb, tb, tf;
+        if (GetDiskFreeSpaceExW(path, &fb, &tb, &tf)) {
+            wchar_t fs[16], ts[16];
+            formatFileSize(fb.QuadPart, fs);
+            formatFileSize(tb.QuadPart, ts);
+            swprintf_s(freeStr, 48, L"  |  %ls: %ls/%ls", lc_str.free_space, fs, ts);
+        }
+    }
+
+    // 4-part status bar: items | size | memory | free space
+    wchar_t part0[80], part1[80];
+    swprintf_s(part0, 80, L"%d %ls", p->numItems, lc_str.items);
+    swprintf_s(part1, 80, L"%ls", sizeStr);
+    setStatusbarParts(part0, part1, memStr[0] ? memStr : L"", freeStr[0] ? freeStr : L"");
 }
 
 static void freeMenuItems() {
@@ -313,28 +386,69 @@ LRESULT CALLBACK ContentViewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             cvSetActiveByHwnd(hwnd);
             break;
         }
+        case WM_LBUTTONDOWN: {
+            // Let ListView update selection first, then arm drag detection
+            OrigWndProc(hwnd, msg, wParam, lParam);
+            dragStartPt.x = (short)LOWORD(lParam);
+            dragStartPt.y = (short)HIWORD(lParam);
+            dragPending = true;
+            updateSelectedItems();
+            return 0;
+        }
+        case WM_MOUSEMOVE: {
+            // Hover tracking for row highlight
+            if (!(wParam & MK_LBUTTON)) {
+                LVHITTESTINFO ht;
+                ht.pt.x = (short)LOWORD(lParam);
+                ht.pt.y = (short)HIWORD(lParam);
+                ListView_HitTest(hwnd, &ht);
+                int newHover = (ht.flags & LVHT_ONITEM) ? ht.iItem : -1;
+                if (newHover != hoveredItem) {
+                    int old = hoveredItem;
+                    hoveredItem = newHover;
+                    if (old >= 0) ListView_RedrawItems(hwnd, old, old);
+                    if (newHover >= 0) ListView_RedrawItems(hwnd, newHover, newHover);
+                }
+            }
+            // Drag detection
+            if (dragPending && (wParam & MK_LBUTTON)) {
+                int dx = abs((short)LOWORD(lParam) - dragStartPt.x);
+                int dy = abs((short)HIWORD(lParam) - dragStartPt.y);
+                if (dx > GetSystemMetrics(SM_CXDRAG) || dy > GetSystemMetrics(SM_CYDRAG)) {
+                    dragPending = false;
+                    if (numSelectedItems > 0) startFileDrag(hwnd);
+                }
+            } else if (!(wParam & MK_LBUTTON)) {
+                dragPending = false;
+            }
+            break;
+        }
+        case WM_LBUTTONUP: {
+            dragPending = false;
+            ReleaseCapture();
+            break;
+        }
         case WM_COMMAND: {
             if ((HWND)lParam == 0) {
-                MENUITEMINFO item;
-                item.cbSize = sizeof(MENUITEMINFO);
-                item.fMask = MIIM_DATA;
-                GetMenuItemInfo(hContextMenu, LOWORD(wParam), FALSE, &item);
-                struct ContextMenuItem* cmItem = (struct ContextMenuItem*)item.dwItemData;
-
-                if (cmItem->openExe) {
-                    // "Open with" a specific app: launch it (non-blocking) with the file.
-                    wchar_t params[MAX_PATH + 4] = {0};
-                    swprintf_s(params, MAX_PATH + 4, L"\"%ls\"", cmItem->openFile);
-                    ShellExecuteW(hwndMain, L"open", cmItem->openExe, params, NULL, SW_SHOW);
+                int cmdId = LOWORD(wParam);
+                if (cmdId >= 0 && cmdId < MAX_MENU_IDS) {
+                    struct ContextMenuItem* cmItem = menuById[cmdId];
+                    if (cmItem) {
+                        if (cmItem->openExe) {
+                            wchar_t params[MAX_PATH + 4] = {0};
+                            swprintf_s(params, MAX_PATH + 4, L"\"%ls\"", cmItem->openFile ? cmItem->openFile : L"");
+                            ShellExecuteW(hwndMain, L"open", cmItem->openExe, params, NULL, SW_SHOW);
+                        }
+                        else if (cmItem->cmdData) {
+                            wchar_t command[MAX_PATH];
+                            wcscpy_s(command, MAX_PATH, L"/C ");
+                            wcscat_s(command, MAX_PATH, cmItem->cmdData);
+                            execCommandLine(command);
+                            navigateRefresh();
+                        }
+                        else if (cmItem->proc) cmItem->proc();
+                    }
                 }
-                else if (cmItem->cmdData) {
-                    wchar_t command[MAX_PATH];
-                    wcscpy_s(command, MAX_PATH, L"/C ");
-                    wcscat_s(command, MAX_PATH, cmItem->cmdData);
-                    execCommandLine(command);
-                    navigateRefresh();
-                }
-                else cmItem->proc();
             }
             break;
         }
@@ -378,7 +492,7 @@ LRESULT CALLBACK ContentViewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     return result;
 }
 
-void updateSelectedItems() {
+static void updateSelectedItems(void) {
     struct Pane* p = activePane();
     MEMFREE(selectedItems);
     numSelectedItems = 0;
@@ -398,9 +512,10 @@ static void addContextMenuItem(HMENU hMenu, int id, struct ContextMenuItem* cmIt
     item.fMask = MIIM_TYPE | MIIM_DATA | MIIM_ID;
     item.fType = MFT_STRING;
     item.dwTypeData = cmItem->text;
-    item.cch = wcslen(cmItem->text);
+    item.cch = cmItem->text ? wcslen(cmItem->text) : 0;
     item.wID = id;
     item.dwItemData = (ULONG_PTR)cmItem;
+    if (id >= 0 && id < MAX_MENU_IDS) menuById[id] = cmItem;
 
     InsertMenuItem(hMenu, -1, TRUE, &item);
 
@@ -607,6 +722,7 @@ static void createOpenWithMenu(int* id) {
 
 static void createContextMenu(enum ContextMenuType type) {
     freeMenuItems();
+    memset(menuById, 0, sizeof(menuById));
 
     HMENU hMenu = CreatePopupMenu();
     hContextMenu = hMenu;
@@ -628,10 +744,18 @@ static void createContextMenu(enum ContextMenuType type) {
         addContextMenuItem(hMenu, id++, &cmiCut, false);
         addContextMenuItem(hMenu, id++, &cmiCopy, true);
         addContextMenuItem(hMenu, id++, &cmiCreateShortcut, false);
+        if (type == MENU_MULTIPLE) addContextMenuItem(hMenu, id++, &cmiBatchRename, false);
         addContextMenuItem(hMenu, id++, &cmiDelete, false);
 
         if (type == MENU_SINGLE) {
             addContextMenuItem(hMenu, id++, &cmiRename, true);
+            addContextMenuItem(hMenu, id++, &cmiCopyPath, false);
+            addContextMenuItem(hMenu, id++, &cmiExtractIcon, false);
+            addContextMenuItem(hMenu, id++, &cmiMD5, false);
+            addContextMenuItem(hMenu, id++, &cmiViewText, false);
+            addContextMenuItem(hMenu, id++, &cmiFolderSize, false);
+            addContextMenuItem(hMenu, id++, &cmiCopyTo, false);
+            addContextMenuItem(hMenu, id++, &cmiMoveTo, false);
             addContextMenuItem(hMenu, id++, &cmiProperties, false);
         }
     }
@@ -641,6 +765,10 @@ static void createContextMenu(enum ContextMenuType type) {
         createCDDriveContextMenu(&id);
         addContextMenuItem(hMenu, id++, &cmiNewFolder, false);
         addContextMenuItem(hMenu, id++, &cmiNewFile, false);
+        addContextMenuItem(hMenu, id++, &cmiNewTxt, false);
+        addContextMenuItem(hMenu, id++, &cmiNewBat, false);
+        addContextMenuItem(hMenu, id++, &cmiNewReg, true);
+        addContextMenuItem(hMenu, id++, &cmiOpenCmd, false);
     }
 
     POINT cursor;
@@ -654,6 +782,127 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
     switch (nmhdr->code) {
         case NM_SETFOCUS: {
             cvSetActiveByHwnd(nmhdr->hwndFrom);
+            break;
+        }
+        case NM_CUSTOMDRAW: {
+            LPNMLVCUSTOMDRAW lpcd = (LPNMLVCUSTOMDRAW)nmhdr;
+            // Custom drawing is for report/details view only. Icon/list views use default rendering.
+            if (p->viewStyle != STYLE_DETAILS) return CDRF_DODEFAULT;
+            if (lpcd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+            if (lpcd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
+                HDC hdc = lpcd->nmcd.hdc;
+                int itemIdx = (int)lpcd->nmcd.dwItemSpec;
+                if (itemIdx < 0 || itemIdx >= p->numItems) break;
+                struct ListItem* item = &p->items[itemIdx];
+                RECT rc = lpcd->nmcd.rc;
+                int rowH = rc.bottom - rc.top;
+
+                // Force-load if needed (LVS_OWNERDATA may call customdraw before getdispinfo)
+                if (!item->loaded) fillFileInfo(item->node, item);
+
+                BOOL selected = (ListView_GetItemState(p->hwndList, itemIdx, LVIS_SELECTED) & LVIS_SELECTED) != 0;
+                BOOL hovered = (itemIdx == hoveredItem);
+
+                // Use system colors for proper dark/light theme adaptation
+                COLORREF bgColor, textColor;
+                if (selected) {
+                    bgColor = GetSysColor(COLOR_HIGHLIGHT);
+                    textColor = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                    HBRUSH selBrush = CreateSolidBrush(bgColor);
+                    FillRect(hdc, &rc, selBrush);
+                    DeleteObject(selBrush);
+                } else {
+                    COLORREF winBg = GetSysColor(COLOR_WINDOW);
+                    if (hovered) {
+                        // Hover: blend highlight color with window bg (30% highlight)
+                        COLORREF hl = GetSysColor(COLOR_HIGHLIGHT);
+                        bgColor = RGB(
+                            (GetRValue(winBg)*7 + GetRValue(hl)*3)/10,
+                            (GetGValue(winBg)*7 + GetGValue(hl)*3)/10,
+                            (GetBValue(winBg)*7 + GetBValue(hl)*3)/10);
+                    } else if (itemIdx % 2 == 1) {
+                        // Alternate row: slightly darker/lighter than window bg
+                        int r=GetRValue(winBg), g=GetGValue(winBg), b=GetBValue(winBg);
+                        int adj = (r+g+b > 384) ? -12 : 16;  // light bg -> darker, dark bg -> lighter
+                        bgColor = RGB(max(0,min(255,r+adj)), max(0,min(255,g+adj)), max(0,min(255,b+adj)));
+                    } else bgColor = winBg;
+                    textColor = GetSysColor(COLOR_WINDOWTEXT);
+                    HBRUSH bgBrush = CreateSolidBrush(bgColor);
+                    FillRect(hdc, &rc, bgBrush);
+                    DeleteObject(bgBrush);
+                }
+
+                int w0 = SendMessage(p->hwndList, LVM_GETCOLUMNWIDTH, 0, 0);
+                int w1 = SendMessage(p->hwndList, LVM_GETCOLUMNWIDTH, 1, 0);
+                int w2 = SendMessage(p->hwndList, LVM_GETCOLUMNWIDTH, 2, 0);
+
+                HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_SMALL);
+                if (himl && item->icon >= 0) {
+                    ImageList_Draw(himl, item->icon, hdc, rc.left + 4, rc.top + (rowH - 16) / 2, ILD_TRANSPARENT);
+                }
+
+                SetTextColor(hdc, textColor);
+                SetBkMode(hdc, TRANSPARENT);
+                HGDIOBJ oldFont = SelectObject(hdc, getUIFont());
+
+                RECT nameR = {rc.left + 26, rc.top, rc.left + w0 - 4, rc.bottom};
+                DrawTextW(hdc, item->node->name, -1, &nameR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+                RECT typeR = {rc.left + w0 + 4, rc.top, rc.left + w0 + w1 - 4, rc.bottom};
+                DrawTextW(hdc, item->type, -1, &typeR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+                int sizeX = rc.left + w0 + w1;
+                if (item->node->type == TYPE_DRIVE) {
+                    wchar_t dp[MAX_PATH] = {0};
+                    getFileNodePath(item->node, dp);
+                    if (wcslen(dp) == 2 && dp[1] == L':') wcscat_s(dp, MAX_PATH, L"\\");
+                    ULARGE_INTEGER fb, tb, tf;
+                    double usedGB = 0, totalGB = 0;
+                    if (GetDiskFreeSpaceExW(dp, &fb, &tb, &tf)) {
+                        usedGB = (double)(tb.QuadPart - fb.QuadPart) / 1073741824.0;
+                        totalGB = (double)tb.QuadPart / 1073741824.0;
+                    }
+                    // Capacity bar fills the entire size column (Windows Explorer style)
+                    double pct = (totalGB > 0) ? usedGB / totalGB : 0;
+                    if (pct > 1.0) pct = 1.0;
+                    COLORREF barColor = (pct < 0.7) ? RGB(0,160,0) : (pct < 0.9 ? RGB(230,180,0) : RGB(220,50,50));
+                    int barX = sizeX + 2;
+                    int barW = w2 - 4;
+                    int barY = rc.top + 2;
+                    int barH = rowH - 4;
+                    // Track (light gray background)
+                    HBRUSH trackBrush = CreateSolidBrush(GetSysColor(COLOR_3DFACE));
+                    RECT trackR = {barX, barY, barX + barW, barY + barH};
+                    FillRect(hdc, &trackR, trackBrush);
+                    DeleteObject(trackBrush);
+                    // Filled portion (dark color)
+                    int fillW = (int)(barW * pct);
+                    if (fillW > 0) {
+                        HBRUSH fillBrush = CreateSolidBrush(barColor);
+                        RECT fillR = {barX, barY, barX + fillW, barY + barH};
+                        FillRect(hdc, &fillR, fillBrush);
+                        DeleteObject(fillBrush);
+                    }
+                    // White text centered on the bar
+                    wchar_t capText[64];
+                    swprintf_s(capText, 64, L"%.1f / %.1f GB", usedGB, totalGB);
+                    SetTextColor(hdc, RGB(255,255,255));
+                    SetBkMode(hdc, TRANSPARENT);
+                    RECT textR = {barX, barY, barX + barW, barY + barH};
+                    DrawTextW(hdc, capText, -1, &textR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                } else if (item->node->type == TYPE_FILE) {
+                    RECT sizeR = {sizeX + 4, rc.top, sizeX + w2 - 4, rc.bottom};
+                    DrawTextW(hdc, item->formattedSize, -1, &sizeR, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+                }
+
+                if (item->node->type == TYPE_FILE && item->formattedDate[0]) {
+                    RECT dateR = {rc.left + w0 + w1 + w2 + 4, rc.top, rc.right - 4, rc.bottom};
+                    DrawTextW(hdc, item->formattedDate, -1, &dateR, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                }
+
+                SelectObject(hdc, oldFont);
+                return CDRF_SKIPDEFAULT;
+            }
             break;
         }
         case LVN_GETDISPINFO: {
@@ -745,13 +994,49 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
             if (mask & LVIF_TEXT) {
                 switch (nmlvdi->item.iSubItem) {
                     case COLUMN_NAME_IDX:
-                        nmlvdi->item.pszText = item->node->name;
+                        if (item->node->type == TYPE_DRIVE && p->viewStyle != STYLE_DETAILS) {
+                            // In icon/list views, show drive letter + capacity inline
+                            static wchar_t driveLabel[48];
+                            wchar_t dp[MAX_PATH] = {0};
+                            getFileNodePath(item->node, dp);
+                            if (wcslen(dp) == 2 && dp[1] == L':') wcscat_s(dp, MAX_PATH, L"\\");
+                            ULARGE_INTEGER fb, tb, tf;
+                            if (GetDiskFreeSpaceExW(dp, &fb, &tb, &tf) && tb.QuadPart > 0) {
+                                double usedGB = (double)(tb.QuadPart - fb.QuadPart) / 1073741824.0;
+                                double totalGB = (double)tb.QuadPart / 1073741824.0;
+                                swprintf_s(driveLabel, 48, L"%ls  %.0f/%.0fG", item->node->name, usedGB, totalGB);
+                            } else {
+                                swprintf_s(driveLabel, 48, L"%ls", item->node->name);
+                            }
+                            nmlvdi->item.pszText = driveLabel;
+                        } else {
+                            nmlvdi->item.pszText = item->node->name;
+                        }
                         break;
                     case COLUMN_TYPE_IDX:
                         nmlvdi->item.pszText = item->type;
                         break;
                     case COLUMN_SIZE_IDX:
-                        nmlvdi->item.pszText = item->node->type == TYPE_FILE ? item->formattedSize : L"";
+                        if (item->node->type == TYPE_FILE) {
+                            nmlvdi->item.pszText = item->formattedSize;
+                        } else if (item->node->type == TYPE_DRIVE) {
+                            static wchar_t capStr[32];
+                            wchar_t dp[MAX_PATH] = {0};
+                            getFileNodePath(item->node, dp);
+                            // Drive node name is "C:" without trailing slash; GetDiskFreeSpaceExW needs "C:\"
+                            if (wcslen(dp) == 2 && dp[1] == L':') wcscat_s(dp, MAX_PATH, L"\\");
+                            ULARGE_INTEGER fb, tb, tf;
+                            if (GetDiskFreeSpaceExW(dp, &fb, &tb, &tf)) {
+                                double usedGB = (double)(tb.QuadPart - fb.QuadPart) / 1073741824.0;
+                                double totalGB = (double)tb.QuadPart / 1073741824.0;
+                                swprintf_s(capStr, 32, L"%.1fG/%.0fG", usedGB, totalGB);
+                            } else {
+                                capStr[0] = L'\0';
+                            }
+                            nmlvdi->item.pszText = capStr;
+                        } else {
+                            nmlvdi->item.pszText = L"";
+                        }
                         break;
                     case COLUMN_DATE_IDX:
                         nmlvdi->item.pszText = item->node->type == TYPE_FILE ? item->formattedDate : L"";
@@ -828,7 +1113,8 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 case VK_BACK: navigateUp(); break;
                 case VK_RETURN:
                     updateSelectedItems();
-                    if (numSelectedItems == 1) openFileNode(selectedItems[0]);
+                    if (GetKeyState(VK_MENU) < 0) onMenuItemPropertiesClick();
+                    else if (numSelectedItems == 1) openFileNode(selectedItems[0]);
                     break;
                 case 'C': if (ctrl) onMenuItemCopyClick(); break;
                 case 'X': if (ctrl) onMenuItemCutClick(); break;
@@ -927,6 +1213,13 @@ void setViewStyle(enum ViewStyle newViewStyle) {
     SetWindowLongPtr(p->hwndList, GWL_STYLE, wndstyle);
 
     p->viewStyle = newViewStyle;
+    // Persist view style to registry (survives restart)
+    HKEY hkey;
+    if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkey) == ERROR_SUCCESS) {
+        DWORD val = (DWORD)newViewStyle;
+        RegSetValueExW(hkey, L"ViewStyle", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+        RegCloseKey(hkey);
+    }
     refreshPane(p);
 }
 
@@ -1007,10 +1300,14 @@ static LRESULT CALLBACK HeaderWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 // Fit columns to the pane so the four columns never overflow (no horizontal scrollbar):
 // the Name column absorbs the leftover width.
 void cvFitColumns(HWND list, int totalWidth) {
-    int other = 85 + 65 + 95; // type + size + date
+    int typeW = 75, sizeW = 170, dateW = 120;
+    int other = typeW + sizeW + dateW;
     int nameW = totalWidth - other - GetSystemMetrics(SM_CXVSCROLL) - 6;
     if (nameW < 90) nameW = 90;
     SendMessage(list, LVM_SETCOLUMNWIDTH, COLUMN_NAME_IDX, (LPARAM)nameW);
+    SendMessage(list, LVM_SETCOLUMNWIDTH, COLUMN_TYPE_IDX, (LPARAM)typeW);
+    SendMessage(list, LVM_SETCOLUMNWIDTH, COLUMN_SIZE_IDX, (LPARAM)sizeW);
+    SendMessage(list, LVM_SETCOLUMNWIDTH, COLUMN_DATE_IDX, (LPARAM)dateW);
 }
 
 static HWND createOneContentView() {
@@ -1018,6 +1315,9 @@ static HWND createOneContentView() {
                                0, 0, 0, 0, hwndMain, (HMENU)NULL, globalHInstance, NULL);
     OrigWndProc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)ContentViewWndProc);
     SendMessage(hwnd, WM_SETFONT, (WPARAM)getUIFont(), TRUE);
+    // Register as OLE drop target (accept files dragged from Linux file manager / other apps)
+    if (!g_dropTarget) g_dropTarget = createDropTarget();
+    if (g_dropTarget) RegisterDragDrop(hwnd, g_dropTarget);
     // Modern list behaviour: full-row selection, flicker-free scrolling, tidy label tips.
     // NOTE: do NOT SetWindowTheme("Explorer") here — under the dark container theme it forces
     // a light header band that renders the column titles unreadable.
@@ -1052,9 +1352,32 @@ void createContentView() {
     cmiOpenAsAdmin.text = lc_str.open_as_admin;
     cmiChooseProgram.text = lc_str.choose_program;
     cmiProperties.text = lc_str.properties;
+    cmiCopyPath.text = lc_str.copy_path;
+    cmiOpenCmd.text = lc_str.open_cmd;
+    cmiNewTxt.text = lc_str.new_txt;
+    cmiNewBat.text = lc_str.new_bat;
+    cmiNewReg.text = lc_str.new_reg;
+    cmiExtractIcon.text = lc_str.extract_icon;
+    cmiMD5.text = lc_str.calc_md5;
+    cmiViewText.text = lc_str.view_text;
+    cmiFolderSize.text = lc_str.folder_size;
+    cmiCopyTo.text = lc_str.copy_to;
+    cmiMoveTo.text = lc_str.move_to;
+    cmiBatchRename.text = lc_str.batch_rename;
+
+    // Restore saved view style from registry
+    DWORD savedView = STYLE_DETAILS;
+    HKEY hkeyView;
+    if (RegOpenKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkeyView) == ERROR_SUCCESS) {
+        DWORD data = 0, sz = sizeof(data);
+        if (RegQueryValueExW(hkeyView, L"ViewStyle", NULL, NULL, (BYTE*)&data, &sz) == ERROR_SUCCESS)
+            savedView = data;
+        RegCloseKey(hkeyView);
+    }
 
     for (int i = 0; i < NUM_PANES; i++) {
         panes[i].hwndList = createOneContentView();
+        panes[i].viewStyle = (enum ViewStyle)savedView;
         panes[i].hwndPathLabel = CreateWindowEx(0, WC_STATIC, L"", WS_CHILD | WS_CLIPSIBLINGS | SS_LEFTNOWORDWRAP | SS_ENDELLIPSIS | SS_CENTERIMAGE | SS_NOTIFY,
                                                 0, 0, 0, 0, hwndMain, (HMENU)NULL, globalHInstance, NULL);
         SendMessage(panes[i].hwndPathLabel, WM_SETFONT, (WPARAM)getUIFont(), TRUE);
@@ -1172,6 +1495,17 @@ static INT_PTR CALLBACK PropertiesDialogProc(HWND hwndDlg, UINT msg, WPARAM wPar
                 CheckDlgButton(hwndDlg, IDC_ATTR_READONLY, (attr & FILE_ATTRIBUTE_READONLY) ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(hwndDlg, IDC_ATTR_HIDDEN, (attr & FILE_ATTRIBUTE_HIDDEN) ? BST_CHECKED : BST_UNCHECKED);
             }
+            // Localize all labels at runtime (RC file stays English to avoid encoding issues)
+            SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_LNAME), lc_str.prop_name);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_LTYPE), lc_str.prop_type);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_LLOCATION), lc_str.prop_location);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_LSIZE), lc_str.prop_size);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_LMODIFIED), lc_str.prop_modified);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_LATTRIBUTES), lc_str.prop_attributes);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_ATTR_READONLY), lc_str.prop_readonly);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_ATTR_HIDDEN), lc_str.prop_hidden);
+            SetWindowText(GetDlgItem(hwndDlg, IDOK), lc_str.ok);
+            SetWindowText(GetDlgItem(hwndDlg, IDCANCEL), lc_str.cancel);
             return (INT_PTR)TRUE;
         }
         case WM_COMMAND:
@@ -1250,18 +1584,30 @@ void onMenuItemOpenAsAdminClick() {
 }
 
 void onMenuItemOpenWithClick() {
-    if (numSelectedItems == 1 && selectedItems[0]->type == TYPE_FILE) {
-        wchar_t path[MAX_PATH] = {0};
-        getFileNodePath(selectedItems[0], path);
-        // "openas" verb → Wine's "Open With" dialog (lists compatible programs + browse).
-        SHELLEXECUTEINFOW sei = {0};
-        sei.cbSize = sizeof(sei);
-        sei.fMask = SEE_MASK_INVOKEIDLIST;
-        sei.hwnd = hwndMain;
-        sei.lpVerb = L"openas";
-        sei.lpFile = path;
-        sei.nShow = SW_SHOW;
-        ShellExecuteExW(&sei);
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    wchar_t filePath[MAX_PATH] = {0};
+    getFileNodePath(selectedItems[0], filePath);
+    // Browse for an .exe to open the file with (rundll32 OpenAs_RunDLL does not work under Wine)
+    OPENFILENAMEW ofn = {0};
+    wchar_t exePath[MAX_PATH] = {0};
+    ofn.lStructSize = sizeof(OPENFILENAMEW);
+    ofn.hwndOwner = hwndMain;
+    ofn.lpstrFilter = L"Programs (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = exePath;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lpstrTitle = lc_str.choose_program;
+    // Dynamically load comdlg32 to avoid adding -lcomdlg32 to the link line
+    typedef BOOL (WINAPI *PFN_GetOpenFileNameW)(LPOPENFILENAMEW);
+    HMODULE hCd = LoadLibraryW(L"comdlg32.dll");
+    if (hCd) {
+        PFN_GetOpenFileNameW pfn = (PFN_GetOpenFileNameW)GetProcAddress(hCd, "GetOpenFileNameW");
+        if (pfn && pfn(&ofn)) {
+            wchar_t params[MAX_PATH + 8] = {0};
+            swprintf_s(params, MAX_PATH + 8, L"\"%ls\"", filePath);
+            ShellExecuteW(hwndMain, L"open", exePath, params, NULL, SW_SHOW);
+        }
+        FreeLibrary(hCd);
     }
 }
 
@@ -1348,6 +1694,25 @@ void onMenuItemNewFolderClick() {
     }
 }
 
+static void createFileWithExt(const wchar_t* defaultName, const wchar_t* content) {
+    wchar_t path[MAX_PATH] = {0};
+    getFileNodePath(currPathFileNode, path);
+    if (!isPathExists(path)) return;
+    wcscat_s(path, MAX_PATH, L"\\");
+    wcscat_s(path, MAX_PATH, defaultName);
+    if (!isPathExists(path)) {
+        HANDLE handle = CreateFile(path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (handle != INVALID_HANDLE_VALUE) {
+            if (content && content[0]) {
+                DWORD written;
+                WriteFile(handle, content, (DWORD)(wcslen(content) * sizeof(wchar_t)), &written, NULL);
+            }
+            CloseHandle(handle);
+            navigateRefresh();
+        }
+    }
+}
+
 void onMenuItemNewFileClick() {
     wchar_t path[MAX_PATH] = {0};
     getFileNodePath(currPathFileNode, path);
@@ -1367,6 +1732,10 @@ void onMenuItemNewFileClick() {
     }
 }
 
+static void onMenuItemNewTxtClick() { createFileWithExt(L"New Text Document.txt", NULL); }
+static void onMenuItemNewBatClick() { createFileWithExt(L"New Script.bat", L"@echo off\r\n"); }
+static void onMenuItemNewRegClick() { createFileWithExt(L"New Registry Entry.reg", L"Windows Registry Editor Version 5.00\r\n\r\n"); }
+
 void onMenuItemSelectAllClick() {
     HWND h = activePane()->hwndList;
     ListView_SetItemState(h, -1, 0, LVIS_SELECTED);
@@ -1374,7 +1743,7 @@ void onMenuItemSelectAllClick() {
     SetFocus(h);
 }
 
-static void onMenuItemLoadISOImageClick() {
+void onMenuItemLoadISOImageClick() {
     if (numSelectedItems != 1) {
         MessageBox(NULL, lc_str.msg_invalid_iso_image_file, lc_str.alert, MB_OK);
         return;
@@ -1386,7 +1755,10 @@ static void onMenuItemLoadISOImageClick() {
 
     if (!isPathExists(currentISOPath) || !(hasFileExtension(currentISOPath, L"iso") ||
                                            hasFileExtension(currentISOPath, L"bin") ||
-                                           hasFileExtension(currentISOPath, L"cue"))) {
+                                           hasFileExtension(currentISOPath, L"cue") ||
+                                           hasFileExtension(currentISOPath, L"nrg") ||
+                                           hasFileExtension(currentISOPath, L"mdf") ||
+                                           hasFileExtension(currentISOPath, L"img"))) {
         MessageBox(NULL, lc_str.msg_invalid_iso_image_file, lc_str.alert, MB_OK);
         return;
     }
@@ -1396,12 +1768,18 @@ static void onMenuItemLoadISOImageClick() {
         RegCloseKey(hkey);
     }
 
+    // X: must be a real CD-ROM drive configured in winecfg (Path: ../drive_x, Type: cdrom).
+    // Virtual directory mapping cannot be recognized as an optical drive by games.
+    if (GetFileAttributesW(L"X:\\") == INVALID_FILE_ATTRIBUTES) {
+        MessageBox(NULL, L"X: drive not found. Please add it in winecfg: Drives tab -> Add -> X: -> Path: ../drive_x -> Type: CD-ROM", lc_str.alert, MB_OK | MB_ICONWARNING);
+        return;
+    }
     clearDirectory(L"X:");
     extractFilesFromISOImage(currentISOPath, L"X:\\");
 }
 
-static void onMenuItemUnloadISOImageClick() {
-    clearDirectory(L"X:");
+void onMenuItemUnloadISOImageClick() {
+    if (GetFileAttributesW(L"X:\\") != INVALID_FILE_ATTRIBUTES) clearDirectory(L"X:");
     RegDeleteKey(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM\\CurrentISOPath");
     navigateRefresh();
 }
@@ -1466,11 +1844,16 @@ static void refreshPane(struct Pane* p) {
 
     struct FileNode* child = p->currPath->children;
 
-    p->numItems = getChildNodeCount(p->currPath);
-    p->items = calloc(p->numItems, sizeof(struct ListItem));
+    int maxItems = getChildNodeCount(p->currPath);
+    p->items = calloc(maxItems + 1, sizeof(struct ListItem));
     int index = 0;
 
     while (child) {
+        // Game mode: show folders and .exe only
+        if (gameMode && child->type == TYPE_FILE) {
+            wchar_t* dot = wcsrchr(child->name, L'.');
+            if (!dot || _wcsicmp(dot, L".exe") != 0) { child = child->sibling; continue; }
+        }
         struct ListItem* item = &p->items[index++];
         item->node = child;
         item->loaded = false;
@@ -1480,6 +1863,7 @@ static void refreshPane(struct Pane* p) {
 
         child = child->sibling;
     }
+    p->numItems = index;  // actual count after game-mode filter
 
     HIMAGELIST himlBig, himlSmall;
     Shell_GetImageLists(&himlBig, &himlSmall);
@@ -1501,3 +1885,764 @@ void refreshContentView() {
     activePane()->currPath = currPathFileNode;
     refreshPane(activePane());
 }
+
+
+// Refresh column headers and status bar after runtime language switch
+void cvRefreshLanguage(void) {
+    LVCOLUMNW lvc = {0};
+    lvc.mask = LVCF_TEXT;
+    for (int i = 0; i < NUM_PANES; i++) {
+        if (!panes[i].hwndList) continue;
+        lvc.pszText = lc_str.name;
+        ListView_SetColumn(panes[i].hwndList, COLUMN_NAME_IDX, &lvc);
+        lvc.pszText = lc_str.type;
+        ListView_SetColumn(panes[i].hwndList, COLUMN_TYPE_IDX, &lvc);
+        lvc.pszText = lc_str.size;
+        ListView_SetColumn(panes[i].hwndList, COLUMN_SIZE_IDX, &lvc);
+        lvc.pszText = lc_str.date;
+        ListView_SetColumn(panes[i].hwndList, COLUMN_DATE_IDX, &lvc);
+    }
+    updateStatusbar(activePane());
+    InvalidateRect(hwndMain, NULL, TRUE);
+}
+
+// Copy the full path of the selected file to clipboard
+static void onMenuItemCopyPathClick() {
+    if (numSelectedItems != 1) return;
+    wchar_t path[MAX_PATH] = {0};
+    getFileNodePath(selectedItems[0], path);
+    if (OpenClipboard(hwndMain)) {
+        EmptyClipboard();
+        size_t len = (wcslen(path) + 1) * sizeof(wchar_t);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+        if (hMem) {
+            wchar_t* p = (wchar_t*)GlobalLock(hMem);
+            if (p) {
+                wcscpy_s(p, len / sizeof(wchar_t), path);
+                GlobalUnlock(hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
+            }
+        }
+        CloseClipboard();
+    }
+}
+
+// Open cmd.exe at the current directory
+static void onMenuItemOpenCmdClick() {
+    if (!currPathFileNode) return;
+    wchar_t path[MAX_PATH] = {0};
+    getFileNodePath(currPathFileNode, path);
+    wchar_t params[MAX_PATH + 16] = {0};
+    wcscpy_s(params, MAX_PATH + 16, L"/K cd /d \"");
+    wcscat_s(params, MAX_PATH + 16, path);
+    wcscat_s(params, MAX_PATH + 16, L"\"");
+    ShellExecuteW(hwndMain, L"open", L"cmd.exe", params, path, SW_SHOW);
+}
+
+
+// ============================================================================
+// OLE Drag and Drop: drag files OUT to other apps (AlphaRom etc.), accept files IN
+// ============================================================================
+
+// --- IDropSource implementation (required by Wine; NULL does not work) ---
+typedef struct {
+    IDropSourceVtbl* lpVtbl;
+    LONG refCount;
+} DropSourceImpl;
+
+static HRESULT STDMETHODCALLTYPE DropSrc_QueryInterface(IDropSource* This, REFIID riid, void** ppv) {
+    if (!ppv) return E_POINTER;
+    *ppv = NULL;
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IDropSource)) {
+        *ppv = This; This->lpVtbl->AddRef(This); return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE DropSrc_AddRef(IDropSource* This) { return InterlockedIncrement(&((DropSourceImpl*)This)->refCount); }
+static ULONG STDMETHODCALLTYPE DropSrc_Release(IDropSource* This) {
+    DropSourceImpl* o = (DropSourceImpl*)This;
+    ULONG c = InterlockedDecrement(&o->refCount);
+    if (c == 0) free(o);
+    return c;
+}
+static HRESULT STDMETHODCALLTYPE DropSrc_QueryContinueDrag(IDropSource* This, BOOL fEsc, DWORD grfKey) {
+    if (fEsc) return DRAGDROP_S_CANCEL;
+    // Use GetAsyncKeyState as fallback: Wine may not update grfKey reliably
+    if (!(grfKey & MK_LBUTTON) || !(GetAsyncKeyState(VK_LBUTTON) & 0x8000))
+        return DRAGDROP_S_DROP;
+    return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE DropSrc_GiveFeedback(IDropSource* This, DWORD dwEffect) { return DRAGDROP_S_USEDEFAULTCURSORS; }
+
+static IDropSourceVtbl dropSourceVtbl = {
+    DropSrc_QueryInterface, DropSrc_AddRef, DropSrc_Release,
+    DropSrc_QueryContinueDrag, DropSrc_GiveFeedback
+};
+
+static IDropSource* createDropSource(void) {
+    DropSourceImpl* o = calloc(1, sizeof(DropSourceImpl));
+    if (!o) return NULL;
+    o->lpVtbl = &dropSourceVtbl;
+    o->refCount = 1;
+    return (IDropSource*)o;
+}
+
+// --- IDataObject implementation (drag source) ---
+typedef struct {
+    IDataObjectVtbl* lpVtbl;
+    LONG refCount;
+    STGMEDIUM stgMedium;
+    UINT numFiles;
+} FileDataObject;
+
+static HRESULT STDMETHODCALLTYPE DataObj_QueryInterface(IDataObject* This, REFIID riid, void** ppv) {
+    if (!ppv) return E_POINTER;
+    *ppv = NULL;
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IDataObject)) {
+        *ppv = This;
+        This->lpVtbl->AddRef(This);
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE DataObj_AddRef(IDataObject* This) {
+    return InterlockedIncrement(&((FileDataObject*)This)->refCount);
+}
+static ULONG STDMETHODCALLTYPE DataObj_Release(IDataObject* This) {
+    FileDataObject* obj = (FileDataObject*)This;
+    ULONG c = InterlockedDecrement(&obj->refCount);
+    if (c == 0) {
+        if (obj->stgMedium.hGlobal) ReleaseStgMedium(&obj->stgMedium);
+        free(obj);
+    }
+    return c;
+}
+static HRESULT STDMETHODCALLTYPE DataObj_GetData(IDataObject* This, FORMATETC* pfe, STGMEDIUM* pstg) {
+    FileDataObject* obj = (FileDataObject*)This;
+    if (pfe->cfFormat == CF_HDROP && (pfe->tymed == TYMED_NULL || (pfe->tymed & TYMED_HGLOBAL))) {
+        SIZE_T sz = GlobalSize(obj->stgMedium.hGlobal);
+        HGLOBAL hCopy = GlobalAlloc(GHND, sz);
+        if (!hCopy) return E_OUTOFMEMORY;
+        void* src = GlobalLock(obj->stgMedium.hGlobal);
+        void* dst = GlobalLock(hCopy);
+        memcpy(dst, src, sz);
+        GlobalUnlock(obj->stgMedium.hGlobal);
+        GlobalUnlock(hCopy);
+        pstg->tymed = TYMED_HGLOBAL;
+        pstg->hGlobal = hCopy;
+        pstg->pUnkForRelease = NULL;
+        return S_OK;
+    }
+    return DV_E_FORMATETC;
+}
+static HRESULT STDMETHODCALLTYPE DataObj_GetDataHere(IDataObject* This, FORMATETC* pfe, STGMEDIUM* pstg) {
+    return DataObj_GetData(This, pfe, pstg);
+}
+static HRESULT STDMETHODCALLTYPE DataObj_QueryGetData(IDataObject* This, FORMATETC* pfe) {
+    if (pfe->cfFormat == CF_HDROP && (pfe->tymed == TYMED_NULL || (pfe->tymed & TYMED_HGLOBAL))) return S_OK;
+    return DV_E_FORMATETC;
+}
+static HRESULT STDMETHODCALLTYPE DataObj_GetCanonicalFormatEtc(IDataObject* This, FORMATETC* pfe, FORMATETC* pfeOut) { return E_NOTIMPL; }
+static HRESULT STDMETHODCALLTYPE DataObj_SetData(IDataObject* This, FORMATETC* pfe, STGMEDIUM* pstg, BOOL fRelease) { return E_NOTIMPL; }
+// Simple IEnumFORMATETC for CF_HDROP
+typedef struct {
+    IEnumFORMATETCVtbl* lpVtbl;
+    LONG refCount;
+    ULONG index;
+} EnumFmtEtcImpl;
+
+static HRESULT STDMETHODCALLTYPE EnumFmt_QueryInterface(IEnumFORMATETC* This, REFIID riid, void** ppv) {
+    if (!ppv) return E_POINTER;
+    *ppv = NULL;
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IEnumFORMATETC)) {
+        *ppv = This; This->lpVtbl->AddRef(This); return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE EnumFmt_AddRef(IEnumFORMATETC* This) { return InterlockedIncrement(&((EnumFmtEtcImpl*)This)->refCount); }
+static ULONG STDMETHODCALLTYPE EnumFmt_Release(IEnumFORMATETC* This) {
+    ULONG c = InterlockedDecrement(&((EnumFmtEtcImpl*)This)->refCount);
+    if (c == 0) free(This);
+    return c;
+}
+static HRESULT STDMETHODCALLTYPE EnumFmt_Next(IEnumFORMATETC* This, ULONG celt, FORMATETC* rgelt, ULONG* pceltFetched) {
+    EnumFmtEtcImpl* e = (EnumFmtEtcImpl*)This;
+    if (e->index >= 1) { if (pceltFetched) *pceltFetched = 0; return S_FALSE; }
+    rgelt[0].cfFormat = CF_HDROP;
+    rgelt[0].ptd = NULL;
+    rgelt[0].dwAspect = DVASPECT_CONTENT;
+    rgelt[0].lindex = -1;
+    rgelt[0].tymed = TYMED_HGLOBAL;
+    e->index = 1;
+    if (pceltFetched) *pceltFetched = 1;
+    return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE EnumFmt_Skip(IEnumFORMATETC* This, ULONG celt) {
+    ((EnumFmtEtcImpl*)This)->index += celt;
+    return ((EnumFmtEtcImpl*)This)->index >= 1 ? S_FALSE : S_OK;
+}
+static HRESULT STDMETHODCALLTYPE EnumFmt_Reset(IEnumFORMATETC* This) {
+    ((EnumFmtEtcImpl*)This)->index = 0; return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE EnumFmt_Clone(IEnumFORMATETC* This, IEnumFORMATETC** pp) {
+    if (!pp) return E_POINTER;
+    EnumFmtEtcImpl* e = calloc(1, sizeof(EnumFmtEtcImpl));
+    e->lpVtbl = ((EnumFmtEtcImpl*)This)->lpVtbl;
+    e->refCount = 1;
+    e->index = ((EnumFmtEtcImpl*)This)->index;
+    *pp = (IEnumFORMATETC*)e;
+    return S_OK;
+}
+static IEnumFORMATETCVtbl enumFmtVtbl = {
+    EnumFmt_QueryInterface, EnumFmt_AddRef, EnumFmt_Release,
+    EnumFmt_Next, EnumFmt_Skip, EnumFmt_Reset, EnumFmt_Clone
+};
+
+static HRESULT STDMETHODCALLTYPE DataObj_EnumFormatEtc(IDataObject* This, DWORD dw, IEnumFORMATETC** pp) {
+    if (!pp) return E_POINTER;
+    if (dw != DATADIR_GET) return E_NOTIMPL;
+    EnumFmtEtcImpl* e = calloc(1, sizeof(EnumFmtEtcImpl));
+    e->lpVtbl = &enumFmtVtbl;
+    e->refCount = 1;
+    e->index = 0;
+    *pp = (IEnumFORMATETC*)e;
+    return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE DataObj_DAdvise(IDataObject* This, FORMATETC* pfe, DWORD advf, IAdviseSink* pAdv, DWORD* pdw) { return E_NOTIMPL; }
+static HRESULT STDMETHODCALLTYPE DataObj_DUnadvise(IDataObject* This, DWORD dw) { return E_NOTIMPL; }
+static HRESULT STDMETHODCALLTYPE DataObj_EnumDAdvise(IDataObject* This, IEnumSTATDATA** pp) { return E_NOTIMPL; }
+
+static IDataObjectVtbl dataObjVtbl = {
+    DataObj_QueryInterface, DataObj_AddRef, DataObj_Release,
+    DataObj_GetData, DataObj_GetDataHere, DataObj_QueryGetData,
+    DataObj_GetCanonicalFormatEtc, DataObj_SetData, DataObj_EnumFormatEtc,
+    DataObj_DAdvise, DataObj_DUnadvise, DataObj_EnumDAdvise
+};
+
+// Build an HDROP global memory block from selected file paths
+static HGLOBAL buildHDropFromSelection(void) {
+    // Collect paths
+    wchar_t paths[1024]; // concatenated double-null terminated list
+    paths[0] = L'\0';
+    int totalLen = 0;
+    for (int i = 0; i < numSelectedItems && totalLen < 1000; i++) {
+        wchar_t path[MAX_PATH] = {0};
+        getFileNodePath(selectedItems[i], path);
+        int len = wcslen(path);
+        if (totalLen + len + 1 >= 1024) break;
+        wcscpy_s(paths + totalLen, 1024 - totalLen, path);
+        totalLen += len + 1;
+    }
+    paths[totalLen] = L'\0'; // double null terminator
+    totalLen++;
+
+    size_t hdrSize = sizeof(DROPFILES);
+    size_t dataSize = totalLen * sizeof(wchar_t);
+    HGLOBAL hMem = GlobalAlloc(GHND, hdrSize + dataSize);
+    if (!hMem) return NULL;
+    DROPFILES* df = (DROPFILES*)GlobalLock(hMem);
+    df->pFiles = hdrSize;
+    df->fWide = TRUE;
+    df->pt.x = 0; df->pt.y = 0;
+    df->fNC = FALSE;
+    memcpy((BYTE*)df + hdrSize, paths, dataSize);
+    GlobalUnlock(hMem);
+    return hMem;
+}
+
+// Start dragging selected files
+// Fallback: when OLE drag is rejected by the target (common under Wine/X11),
+// detect the window under the cursor and open the dragged file with that program.
+static void dragFallbackOpenWith(HWND hwndMain) {
+    POINT pt; GetCursorPos(&pt);
+    HWND target = WindowFromPoint(pt);
+    if (!target) return;
+    HWND top = GetAncestor(target, GA_ROOT);
+    // Skip if dropped on our own window
+    if (top == hwndMain) return;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(target, &pid);
+    if (pid == 0) return;
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProc) return;
+    wchar_t exePath[MAX_PATH] = {0};
+    DWORD exeLen = MAX_PATH;
+    BOOL ok = QueryFullProcessImageNameW(hProc, 0, exePath, &exeLen);
+    CloseHandle(hProc);
+    if (!ok || !exePath[0]) return;
+    // Open first selected file with the target program
+    updateSelectedItems();
+    if (numSelectedItems == 0) return;
+    wchar_t filePath[MAX_PATH] = {0};
+    getFileNodePath(selectedItems[0], filePath);
+    wchar_t workDir[MAX_PATH] = {0};
+    getFileNodePath(selectedItems[0]->parent, workDir);
+    ShellExecuteW(hwndMain, L"open", exePath, filePath, workDir, SW_SHOW);
+}
+
+static void startFileDrag(HWND hwnd) {
+    ReleaseCapture();  // DoDragDrop manages its own mouse capture
+    updateSelectedItems();
+    if (numSelectedItems == 0) return;
+    HGLOBAL hDrop = buildHDropFromSelection();
+    if (!hDrop) return;
+
+    FileDataObject* obj = calloc(1, sizeof(FileDataObject));
+    if (!obj) { GlobalFree(hDrop); return; }
+    obj->lpVtbl = &dataObjVtbl;
+    obj->refCount = 1;
+    obj->stgMedium.tymed = TYMED_HGLOBAL;
+    obj->stgMedium.hGlobal = hDrop;
+    obj->numFiles = numSelectedItems;
+
+    DWORD dwEffect = DROPEFFECT_COPY;
+    IDropSource* pDropSrc = createDropSource();
+    DoDragDrop((IDataObject*)obj, pDropSrc, DROPEFFECT_COPY | DROPEFFECT_MOVE, &dwEffect);
+    // If no OLE target accepted the drop (Wine/X11 cross-process limitation),
+    // fall back to opening the file with whatever program is under the cursor.
+    if (dwEffect == DROPEFFECT_NONE) {
+        dragFallbackOpenWith(hwndMain);
+    }
+    if (pDropSrc) pDropSrc->lpVtbl->Release(pDropSrc);
+    obj->lpVtbl->Release((IDataObject*)obj);
+}
+
+// --- IDropTarget implementation (drop target) ---
+typedef struct {
+    IDropTargetVtbl* lpVtbl;
+    LONG refCount;
+    bool canAccept;
+} DropTargetImpl;
+
+static HRESULT STDMETHODCALLTYPE DropTarget_QueryInterface(IDropTarget* This, REFIID riid, void** ppv) {
+    if (!ppv) return E_POINTER;
+    *ppv = NULL;
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IDropTarget)) {
+        *ppv = This;
+        This->lpVtbl->AddRef(This);
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE DropTarget_AddRef(IDropTarget* This) {
+    return InterlockedIncrement(&((DropTargetImpl*)This)->refCount);
+}
+static ULONG STDMETHODCALLTYPE DropTarget_Release(IDropTarget* This) {
+    DropTargetImpl* obj = (DropTargetImpl*)This;
+    ULONG c = InterlockedDecrement(&obj->refCount);
+    if (c == 0) free(obj);
+    return c;
+}
+static HWND resolveListHwnd(HWND h);
+static HRESULT STDMETHODCALLTYPE DropTarget_DragEnter(IDropTarget* This, IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect) {
+    FORMATETC fe = {CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    ((DropTargetImpl*)This)->canAccept = (pDataObj->lpVtbl->QueryGetData(pDataObj, &fe) == S_OK);
+    POINT screenPt = {pt.x, pt.y};
+    g_dropHwnd = resolveListHwnd(WindowFromPoint(screenPt));
+    *pdwEffect = ((DropTargetImpl*)This)->canAccept ? (g_dropHwnd ? DROPEFFECT_COPY : DROPEFFECT_NONE) : DROPEFFECT_NONE;
+    return S_OK;
+}
+static HWND resolveListHwnd(HWND h) {
+    // Walk up parents until we find one of our list panes
+    while (h) {
+        for (int i = 0; i < NUM_PANES; i++) if (panes[i].hwndList == h) return h;
+        h = GetParent(h);
+    }
+    return NULL;
+}
+static HRESULT STDMETHODCALLTYPE DropTarget_DragOver(IDropTarget* This, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect) {
+    POINT screenPt = {pt.x, pt.y};
+    HWND h = WindowFromPoint(screenPt);
+    g_dropHwnd = resolveListHwnd(h);
+    *pdwEffect = ((DropTargetImpl*)This)->canAccept ? (g_dropHwnd ? DROPEFFECT_COPY : DROPEFFECT_NONE) : DROPEFFECT_NONE;
+    return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE DropTarget_DragLeave(IDropTarget* This) { return S_OK; }
+static HRESULT STDMETHODCALLTYPE DropTarget_Drop(IDropTarget* This, IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect) {
+    FORMATETC fe = {CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM stg = {0};
+    if (pDataObj->lpVtbl->GetData(pDataObj, &fe, &stg) == S_OK) {
+        HDROP hDrop = (HDROP)stg.hGlobal;
+        // Determine destination: check if dropped on a folder item
+        wchar_t dstDir[MAX_PATH] = {0};
+        bool dropOnFolder = false;
+        if (g_dropHwnd) {
+            POINT clientPt = {pt.x, pt.y};
+            ScreenToClient(g_dropHwnd, &clientPt);
+            LVHITTESTINFO ht;
+            ht.pt = clientPt;
+            int itemIdx = ListView_HitTest(g_dropHwnd, &ht);
+            if (itemIdx >= 0 && (ht.flags & LVHT_ONITEM)) {
+                struct Pane* tp = paneFromHwnd(g_dropHwnd);
+                if (tp && itemIdx < tp->numItems && tp->items[itemIdx].node->type == TYPE_DIR) {
+                    getFileNodePath(tp->items[itemIdx].node, dstDir);
+                    dropOnFolder = true;
+                }
+            }
+        }
+        if (!dropOnFolder) {
+            // Dropped on empty area: use the target pane's current directory (supports dual-pane)
+            struct Pane* targetPane = g_dropHwnd ? paneFromHwnd(g_dropHwnd) : NULL;
+            struct FileNode* targetNode = targetPane ? targetPane->currPath : currPathFileNode;
+            if (targetNode) getFileNodePath(targetNode, dstDir);
+        }
+
+        UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
+        for (UINT i = 0; i < count; i++) {
+            wchar_t srcPath[MAX_PATH] = {0};
+            DragQueryFileW(hDrop, i, srcPath, MAX_PATH);
+            if (dstDir[0]) {
+                wchar_t dstPath[MAX_PATH] = {0};
+                wchar_t* name = wcsrchr(srcPath, L'\\');
+                name = name ? name + 1 : srcPath;
+                swprintf_s(dstPath, MAX_PATH, L"%ls\\%ls", dstDir, name);
+                CopyFileW(srcPath, dstPath, FALSE);
+            }
+        }
+        DragFinish(hDrop);
+        ReleaseStgMedium(&stg);
+        // Refresh both panes (drop may target the inactive pane)
+        for (int pi = 0; pi < NUM_PANES; pi++) refreshPane(&panes[pi]);
+    }
+    *pdwEffect = DROPEFFECT_COPY;
+    return S_OK;
+}
+
+static IDropTargetVtbl dropTargetVtbl = {
+    DropTarget_QueryInterface, DropTarget_AddRef, DropTarget_Release,
+    DropTarget_DragEnter, DropTarget_DragOver, DropTarget_DragLeave, DropTarget_Drop
+};
+
+static IDropTarget* createDropTarget(void) {
+    DropTargetImpl* obj = calloc(1, sizeof(DropTargetImpl));
+    if (!obj) return NULL;
+    obj->lpVtbl = &dropTargetVtbl;
+    obj->refCount = 1;
+    return (IDropTarget*)obj;
+}
+
+// ============================================================================
+// FEATURE PACK: MD5, Extract Icon, Nav History, Text Viewer, Folder Size,
+// Game Mode, Batch Rename, Recent Places, Compare Panes, Copy/Move To
+// ============================================================================
+
+// ---------- MD5 (RFC 1321, pure C, no external dependency) ----------
+typedef struct { unsigned int a,b,c,d; unsigned long long len; unsigned char buf[64]; } MD5_CTX;
+static void md5_init(MD5_CTX* c) { c->a=0x67452301;c->b=0xefcdab89;c->c=0x98badcfe;c->d=0x10325476;c->len=0; }
+#define ML(x,n) (((x)>>(n))|((x)<<(32-(n))))
+static unsigned int F(unsigned int x,unsigned int y,unsigned int z){return (x&y)|(~x&z);}
+static unsigned int G(unsigned int x,unsigned int y,unsigned int z){return (x&z)|(y&~z);}
+static unsigned int H(unsigned int x,unsigned int y,unsigned int z){return x^y^z;}
+static unsigned int I(unsigned int x,unsigned int y,unsigned int z){return y^(x|~z);}
+static void R1(unsigned int*a,unsigned int b,unsigned int c,unsigned int d,unsigned int x,unsigned int s,unsigned int t){*a=b+ML((*a+F(b,c,d)+x+t),s);}
+static void R2(unsigned int*a,unsigned int b,unsigned int c,unsigned int d,unsigned int x,unsigned int s,unsigned int t){*a=b+ML((*a+G(b,c,d)+x+t),s);}
+static void R3(unsigned int*a,unsigned int b,unsigned int c,unsigned int d,unsigned int x,unsigned int s,unsigned int t){*a=b+ML((*a+H(b,c,d)+x+t),s);}
+static void R4(unsigned int*a,unsigned int b,unsigned int c,unsigned int d,unsigned int x,unsigned int s,unsigned int t){*a=b+ML((*a+I(b,c,d)+x+t),s);}
+static void md5_transform(MD5_CTX* c, unsigned char* p) {
+    unsigned int x[16],i; for(i=0;i<16;i++) x[i]=p[i*4]|(p[i*4+1]<<8)|(p[i*4+2]<<16)|((unsigned int)p[i*4+3]<<24);
+    unsigned int a=c->a,b=c->b,cc=c->c,d=c->d;
+    R1(&a,b,cc,d,x[0],7,0xd76aa478);R1(&d,a,b,cc,x[1],12,0xe8c7b756);R1(&cc,d,a,b,x[2],17,0x242070db);R1(&b,cc,d,a,x[3],22,0xc1bdceee);
+    R1(&a,b,cc,d,x[4],7,0xf57c0faf);R1(&d,a,b,cc,x[5],12,0x4787c62a);R1(&cc,d,a,b,x[6],17,0xa8304613);R1(&b,cc,d,a,x[7],22,0xfd469501);
+    R1(&a,b,cc,d,x[8],7,0x698098d8);R1(&d,a,b,cc,x[9],12,0x8b44f7af);R1(&cc,d,a,b,x[10],17,0xffff5bb1);R1(&b,cc,d,a,x[11],22,0x895cd7be);
+    R1(&a,b,cc,d,x[12],7,0x6b901122);R1(&d,a,b,cc,x[13],12,0xfd987193);R1(&cc,d,a,b,x[14],17,0xa679438e);R1(&b,cc,d,a,x[15],22,0x49b40821);
+    R2(&a,b,cc,d,x[1],5,0xf61e2562);R2(&d,a,b,cc,x[6],9,0xc040b340);R2(&cc,d,a,b,x[11],14,0x265e5a51);R2(&b,cc,d,a,x[0],20,0xe9b6c7aa);
+    R2(&a,b,cc,d,x[5],5,0xd62f105d);R2(&d,a,b,cc,x[10],9,0x02441453);R2(&cc,d,a,b,x[15],14,0xd8a1e681);R2(&b,cc,d,a,x[4],20,0xe7d3fbc8);
+    R2(&a,b,cc,d,x[9],5,0x21e1cde6);R2(&d,a,b,cc,x[14],9,0xc33707d6);R2(&cc,d,a,b,x[3],14,0xf4d50d87);R2(&b,cc,d,a,x[8],20,0x455a14ed);
+    R2(&a,b,cc,d,x[13],5,0xa9e3e905);R2(&d,a,b,cc,x[2],9,0xfcefa3f8);R2(&cc,d,a,b,x[7],14,0x676f02d9);R2(&b,cc,d,a,x[12],20,0x8d2a4c8a);
+    R3(&a,b,cc,d,x[5],4,0xfffa3942);R3(&d,a,b,cc,x[8],11,0x8771f681);R3(&cc,d,a,b,x[11],16,0x6d9d6122);R3(&b,cc,d,a,x[14],23,0xfde5380c);
+    R3(&a,b,cc,d,x[1],4,0xa4beea44);R3(&d,a,b,cc,x[4],11,0x4bdecfa9);R3(&cc,d,a,b,x[7],16,0xf6bb4b60);R3(&b,cc,d,a,x[10],23,0xbebfbc70);
+    R3(&a,b,cc,d,x[13],4,0x289b7ec6);R3(&d,a,b,cc,x[0],11,0xeaa127fa);R3(&cc,d,a,b,x[3],16,0xd4ef3085);R3(&b,cc,d,a,x[6],23,0x04881d05);
+    R3(&a,b,cc,d,x[9],4,0xd9d4d039);R3(&d,a,b,cc,x[12],11,0xe6db99e5);R3(&cc,d,a,b,x[15],16,0x1fa27cf8);R3(&b,cc,d,a,x[2],23,0xc4ac5665);
+    R4(&a,b,cc,d,x[0],6,0xf4292244);R4(&d,a,b,cc,x[7],10,0x432aff97);R4(&cc,d,a,b,x[14],15,0xab9423a7);R4(&b,cc,d,a,x[5],21,0xfc93a039);
+    R4(&a,b,cc,d,x[12],6,0x655b59c3);R4(&d,a,b,cc,x[3],10,0x8f0ccc92);R4(&cc,d,a,b,x[10],15,0xffeff47d);R4(&b,cc,d,a,x[1],21,0x85845dd1);
+    R4(&a,b,cc,d,x[8],6,0x6fa87e4f);R4(&d,a,b,cc,x[15],10,0xfe2ce6e0);R4(&cc,d,a,b,x[6],15,0xa3014314);R4(&b,cc,d,a,x[13],21,0x4e0811a1);
+    R4(&a,b,cc,d,x[4],6,0xf7537e82);R4(&d,a,b,cc,x[11],10,0xbd3af235);R4(&cc,d,a,b,x[2],15,0x2ad7d2bb);R4(&b,cc,d,a,x[9],21,0xeb86d391);
+    c->a+=a;c->b+=b;c->c+=cc;c->d+=d;
+}
+static void md5_update(MD5_CTX* c, const unsigned char* data, size_t n) {
+    size_t i, idx = c->len & 63; c->len += n;
+    for(i=0;i<n;i++){ c->buf[idx++]=data[i]; if(idx==64){md5_transform(c,c->buf);idx=0;} }
+}
+static void md5_final(MD5_CTX* c, unsigned char out[16]) {
+    size_t idx = c->len & 63; c->buf[idx++]=0x80;
+    if(idx>56){ while(idx<64)c->buf[idx++]=0; md5_transform(c,c->buf); idx=0; }
+    while(idx<56)c->buf[idx++]=0;
+    unsigned long long bits=c->len*8; int j; for(j=0;j<8;j++)c->buf[56+j]=(unsigned char)(bits>>(j*8));
+    md5_transform(c,c->buf);
+    for(j=0;j<4;j++){out[j]=(unsigned char)(c->a>>(j*8));out[j+4]=(unsigned char)(c->b>>(j*8));out[j+8]=(unsigned char)(c->c>>(j*8));out[j+12]=(unsigned char)(c->d>>(j*8));}
+}
+static void computeFileMD5(wchar_t* path, wchar_t* out, size_t outLen) {
+    out[0]=0;
+    HANDLE hf=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+    if(hf==INVALID_HANDLE_VALUE)return;
+    MD5_CTX ctx; md5_init(&ctx);
+    unsigned char buf[65536]; DWORD rd;
+    while(ReadFile(hf,buf,sizeof(buf),&rd,NULL)&&rd>0) md5_update(&ctx,buf,rd);
+    CloseHandle(hf);
+    unsigned char digest[16]; md5_final(&ctx,digest);
+    int i,pos=0; for(i=0;i<16;i++){pos+=swprintf_s(out+pos,outLen-pos,L"%02x",digest[i]);}
+}
+
+// ---------- Navigation history (back/forward) ----------
+#define NAV_MAX 32
+static wchar_t* navBack[NAV_MAX]; static int navBackCount=0;
+static wchar_t* navFwd[NAV_MAX]; static int navFwdCount=0;
+static bool navSuppressing=false;
+void navPushHistory(wchar_t* path) {
+    if(navSuppressing||!path)return;
+    if(navBackCount>=NAV_MAX){free(navBack[0]);memmove(navBack,navBack+1,sizeof(wchar_t*)*(NAV_MAX-1));navBackCount--;}
+    navBack[navBackCount++]=wcsdup(path);
+    int i; for(i=0;i<navFwdCount;i++)free(navFwd[i]); navFwdCount=0;
+}
+void navGoBack(void) {
+    if(navBackCount<2)return;
+    // current is at top, move it to forward, navigate to previous
+    wchar_t* cur=navBack[--navBackCount];
+    if(navFwdCount<NAV_MAX)navFwd[navFwdCount++]=cur; else free(cur);
+    wchar_t* target=navBack[navBackCount-1];
+    navSuppressing=true;
+    navigateToPath(target);
+    navSuppressing=false;
+}
+void navGoForward(void) {
+    if(navFwdCount==0)return;
+    wchar_t* target=navFwd[--navFwdCount];
+    if(navBackCount<NAV_MAX)navBack[navBackCount++]=wcsdup(target);
+    navSuppressing=true;
+    navigateToPath(target);
+    navSuppressing=false;
+}
+
+// ---------- Recent places ----------
+#define RECENT_MAX 10
+static wchar_t* recentPaths[RECENT_MAX]; static int recentCount=0;
+void recentAdd(wchar_t* path) {
+    if(!path||!path[0])return;
+    int i; for(i=0;i<recentCount;i++) if(wcscmp(recentPaths[i],path)==0){free(recentPaths[i]);memmove(recentPaths+i,recentPaths+i+1,sizeof(wchar_t*)*(recentCount-i-1));recentCount--;break;}
+    if(recentCount>=RECENT_MAX){free(recentPaths[RECENT_MAX-1]);recentCount--;}
+    memmove(recentPaths+1,recentPaths,sizeof(wchar_t*)*recentCount);
+    recentPaths[0]=wcsdup(path); recentCount++;
+}
+void recentMenu(void) {
+    HMENU m=CreatePopupMenu();
+    if(recentCount==0){AppendMenuW(m,MF_STRING|MF_GRAYED,0,lc_str.no_recent);}
+    int i; for(i=0;i<recentCount;i++) AppendMenuW(m,MF_STRING,400+i,recentPaths[i]);
+    POINT pt; GetCursorPos(&pt);
+    int cmd=TrackPopupMenu(m,TPM_RETURNCMD,pt.x,pt.y,0,hwndMain,NULL);
+    DestroyMenu(m);
+    if(cmd>=400&&cmd<400+recentCount) navigateToPath(recentPaths[cmd-400]);
+}
+
+// ---------- Extract icon to BMP ----------
+static void onMenuItemExtractIconClick(void) {
+    updateSelectedItems();
+    if(numSelectedItems!=1)return;
+    wchar_t srcPath[MAX_PATH]={0}; getFileNodePath(selectedItems[0],srcPath);
+    SHFILEINFOW sfi={0};
+    if(!SHGetFileInfoW(srcPath,0,&sfi,sizeof(sfi),SHGFI_ICON|SHGFI_LARGEICON)||!sfi.hIcon)return;
+    ICONINFO ii={0}; GetIconInfo(sfi.hIcon,&ii);
+    BITMAP bm={0}; GetObject(ii.hbmColor?ii.hbmColor:ii.hbmMask,sizeof(bm),&bm);
+    int w=bm.bmWidth,h=bm.bmHeight;
+    HDC hdc=GetDC(NULL);
+    HDC memDC=CreateCompatibleDC(hdc);
+    BITMAPINFO bi={0}; bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth=w; bi.bmiHeader.biHeight=h*2;
+    bi.bmiHeader.biPlanes=1; bi.bmiHeader.biBitCount=32; bi.bmiHeader.biCompression=BI_RGB;
+    void* bits=NULL;
+    HBITMAP hDib=CreateDIBSection(hdc,&bi,DIB_RGB_COLORS,&bits,NULL,0);
+    HGDIOBJ old=SelectObject(memDC,hDib);
+    DrawIconEx(memDC,0,0,sfi.hIcon,w,h,0,NULL,DI_NORMAL);
+    // Write BMP file
+    wchar_t* name=wcsrchr(srcPath,L'\\'); name=name?name+1:srcPath;
+    wchar_t* dot=wcsrchr(name,L'.');
+    wchar_t baseName[MAX_PATH]; wcsncpy_s(baseName,MAX_PATH,name,dot?(size_t)(dot-name):wcslen(name));
+    wchar_t dir[MAX_PATH]={0}; getFileNodePath(selectedItems[0]->parent,dir);
+    wchar_t outPath[MAX_PATH]={0};
+    swprintf_s(outPath,MAX_PATH,L"%ls\\%ls_icon.bmp",dir,baseName);
+    HANDLE hf=CreateFileW(outPath,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+    if(hf!=INVALID_HANDLE_VALUE){
+        DWORD imgSize=w*h*4, wr;
+        unsigned char hdr[54]={0};
+        hdr[0]='B';hdr[1]='M';
+        DWORD fileSize=54+imgSize;
+        memcpy(hdr+2,&fileSize,4); hdr[10]=54;
+        DWORD biSize=40; memcpy(hdr+14,&biSize,4);
+        memcpy(hdr+18,&w,4); int h2=h*2; memcpy(hdr+22,&h2,4);
+        short planes=1,bpp=32; memcpy(hdr+26,&planes,2); memcpy(hdr+28,&bpp,2);
+        memcpy(hdr+34,&imgSize,4);
+        WriteFile(hf,hdr,54,&wr,NULL);
+        WriteFile(hf,bits,imgSize,&wr,NULL); CloseHandle(hf);
+    }
+    SelectObject(memDC,old); DeleteObject(hDib); DeleteDC(memDC); ReleaseDC(NULL,hdc);
+    if(ii.hbmMask){DeleteObject(ii.hbmMask);}
+    if(ii.hbmColor){DeleteObject(ii.hbmColor);}
+    DestroyIcon(sfi.hIcon);
+    MessageBoxW(hwndMain,outPath,lc_str.saved_icon,MB_OK|MB_ICONINFORMATION);
+}
+
+// ---------- MD5 menu ----------
+static void onMenuItemMD5Click(void) {
+    updateSelectedItems();
+    if(numSelectedItems!=1)return;
+    wchar_t path[MAX_PATH]={0}; getFileNodePath(selectedItems[0],path);
+    wchar_t hash[64]={0}; computeFileMD5(path,hash,64);
+    wchar_t msg[256]={0};
+    wchar_t* name=wcsrchr(path,L'\\'); name=name?name+1:path;
+    swprintf_s(msg,256,L"%ls\n\nMD5: %ls",name,hash);
+    MessageBoxW(hwndMain,msg,lc_str.md5_title,MB_OK|MB_ICONINFORMATION);
+}
+
+// ---------- Text viewer (read-only, up to 64KB) ----------
+static void onMenuItemViewTextClick(void) {
+    updateSelectedItems();
+    if(numSelectedItems!=1)return;
+    wchar_t path[MAX_PATH]={0}; getFileNodePath(selectedItems[0],path);
+    HANDLE hf=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+    if(hf==INVALID_HANDLE_VALUE)return;
+    static char raw[65536]; DWORD rd; ReadFile(hf,raw,65535,&rd,NULL); CloseHandle(hf);
+    raw[rd]=0;
+    // Try UTF-8 first, fall back to ANSI codepage
+    int wlen=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,raw,-1,NULL,0);
+    UINT cp = (wlen>0)?CP_UTF8:CP_ACP;
+    if(wlen<=0) wlen=MultiByteToWideChar(CP_ACP,0,raw,-1,NULL,0);
+    if(wlen<=0) return;
+    wchar_t* wbuf=calloc(wlen+2,sizeof(wchar_t));
+    MultiByteToWideChar(cp,0,raw,-1,wbuf,wlen);
+    MessageBoxW(hwndMain,wbuf,lc_str.text_viewer,MB_OK);
+    free(wbuf);
+}
+
+// ---------- Batch rename ----------
+static void onMenuItemBatchRenameClick(void) {
+    updateSelectedItems();
+    if(numSelectedItems<2)return;
+    wchar_t* find=InputDialog(lc_str.batch_rename,lc_str.find_text,L"",true);
+    if(!find)return;
+    wchar_t* repl=InputDialog(lc_str.batch_rename,lc_str.replace_text,L"",true);
+    if(!repl){free(find);return;}
+    int i;
+    for(i=0;i<numSelectedItems;i++){
+        wchar_t oldPath[MAX_PATH]={0}; getFileNodePath(selectedItems[i],oldPath);
+        wchar_t newName[MAX_PATH]={0}; wcscpy_s(newName,MAX_PATH,selectedItems[i]->name);
+        wchar_t* pos=wcsstr(newName,find);
+        if(pos){
+            wchar_t result[MAX_PATH]={0};
+            size_t prefixLen=pos-newName;
+            wcsncpy_s(result,MAX_PATH,newName,prefixLen);
+            wcscat_s(result,MAX_PATH,repl);
+            wcscat_s(result,MAX_PATH,pos+wcslen(find));
+            wchar_t newPath[MAX_PATH]={0};
+            getFileNodePath(selectedItems[i]->parent,newPath);
+            wcscat_s(newPath,MAX_PATH,L"\\"); wcscat_s(newPath,MAX_PATH,result);
+            MoveFileW(oldPath,newPath);
+        }
+    }
+    free(find); free(repl);
+    navigateRefresh();
+}
+
+// ---------- Game mode: large icons + exe only ----------
+void onMenuItemGameModeClick(void) {
+    gameMode=!gameMode;
+    // Keep current view style; only filter to folders + .exe to avoid Wine LVS_ICON rendering issues
+    navigateRefresh();
+}
+
+// ---------- Folder size (background thread) ----------
+#define WM_FOLDERSIZE_DONE (WM_APP+77)
+struct FolderSizeReq { struct FileNode* node; HWND hwnd; };
+static unsigned long __stdcall folderSizeThread(void* param) {
+    struct FolderSizeReq* req=(struct FolderSizeReq*)param;
+    // Recursive sum
+    unsigned long long total=0;
+    // Use FindFirstFile recursively via path
+    wchar_t base[MAX_PATH]={0}; getFileNodePath(req->node,base);
+    // iterative stack
+    wchar_t stack[64][MAX_PATH]; int sp=0;
+    wcscpy_s(stack[sp],MAX_PATH,base); sp++;
+    while(sp>0){
+        sp--; wchar_t cur[MAX_PATH]; wcscpy_s(cur,MAX_PATH,stack[sp]);
+        wchar_t pattern[MAX_PATH]; swprintf_s(pattern,MAX_PATH,L"%ls\\*",cur);
+        WIN32_FIND_DATAW fd; HANDLE hf=FindFirstFileW(pattern,&fd);
+        if(hf==INVALID_HANDLE_VALUE)continue;
+        do{
+            if(wcscmp(fd.cFileName,L".")==0||wcscmp(fd.cFileName,L"..")==0)continue;
+            wchar_t full[MAX_PATH]; swprintf_s(full,MAX_PATH,L"%ls\\%ls",cur,fd.cFileName);
+            if(fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY){
+                if(sp<64){wcscpy_s(stack[sp],MAX_PATH,full);sp++;}
+            } else {
+                LARGE_INTEGER sz; sz.LowPart=fd.nFileSizeLow; sz.HighPart=fd.nFileSizeHigh;
+                total+=sz.QuadPart;
+            }
+        }while(FindNextFileW(hf,&fd));
+        FindClose(hf);
+    }
+    PostMessage(req->hwnd,WM_FOLDERSIZE_DONE,(WPARAM)total,(LPARAM)wcsdup(base));
+    free(req);
+    return 0;
+}
+static void onMenuItemFolderSizeClick(void) {
+    updateSelectedItems();
+    if(numSelectedItems!=1||selectedItems[0]->type!=TYPE_DIR)return;
+    struct FolderSizeReq* req=calloc(1,sizeof(struct FolderSizeReq));
+    req->node=selectedItems[0]; req->hwnd=hwndMain;
+    CreateThread(NULL,0,folderSizeThread,req,0,NULL);
+}
+
+// ---------- Compare panes: select items that differ ----------
+void onMenuItemComparePanesClick(void) {
+    struct Pane* p0=&panes[0]; struct Pane* p1=&panes[1];
+    if(p0->numItems==0 && p1->numItems==0){
+        MessageBoxW(hwndMain,lc_str.no_recent,lc_str.compare_panes,MB_OK|MB_ICONINFORMATION);
+        return;
+    }
+    int onlyLeft=0, onlyRight=0, common=0;
+    int i,j;
+    // Clear selection in both panes
+    ListView_SetItemState(p0->hwndList,-1,0,LVIS_SELECTED);
+    ListView_SetItemState(p1->hwndList,-1,0,LVIS_SELECTED);
+    // Find items in p0 not present in p1 -> select them in p0
+    for(i=0;i<p0->numItems;i++){
+        bool found=false;
+        for(j=0;j<p1->numItems;j++){
+            if(wcscmp(p0->items[i].node->name,p1->items[j].node->name)==0){found=true;break;}
+        }
+        if(found) common++;
+        else { ListView_SetItemState(p0->hwndList,i,LVIS_SELECTED,LVIS_SELECTED); onlyLeft++; }
+    }
+    // Find items in p1 not present in p0 -> select them in p1
+    for(j=0;j<p1->numItems;j++){
+        bool found=false;
+        for(i=0;i<p0->numItems;i++){
+            if(wcscmp(p1->items[j].node->name,p0->items[i].node->name)==0){found=true;break;}
+        }
+        if(!found){ ListView_SetItemState(p1->hwndList,j,LVIS_SELECTED,LVIS_SELECTED); onlyRight++; }
+    }
+    wchar_t msg[256];
+    swprintf_s(msg,256,L"Left only: %d   Right only: %d   Common: %d",onlyLeft,onlyRight,common);
+    MessageBoxW(hwndMain,msg,(onlyLeft==0&&onlyRight==0)?lc_str.panes_same:lc_str.panes_diff,
+        MB_OK|MB_ICONINFORMATION);
+}
+
+// ---------- Copy To / Move To ----------
+static void copyOrMoveTo(bool isMove) {
+    updateSelectedItems();
+    if(numSelectedItems==0)return;
+    BROWSEINFOW bi={0}; bi.hwndOwner=hwndMain; bi.lpszTitle=isMove?lc_str.move_to:lc_str.copy_to;
+    bi.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
+    PIDLIST_ABSOLUTE pidl=SHBrowseForFolderW(&bi);
+    if(!pidl)return;
+    wchar_t dst[MAX_PATH]={0}; SHGetPathFromIDListW(pidl,dst); CoTaskMemFree(pidl);
+    if(!dst[0])return;
+    int i;
+    for(i=0;i<numSelectedItems;i++){
+        wchar_t src[MAX_PATH]={0}; getFileNodePath(selectedItems[i],src);
+        wchar_t* nm=wcsrchr(src,L'\\'); nm=nm?nm+1:src;
+        wchar_t target[MAX_PATH]; swprintf_s(target,MAX_PATH,L"%ls\\%ls",dst,nm);
+        if(isMove) MoveFileW(src,target);
+        else CopyFileW(src,target,FALSE);
+    }
+    navigateRefresh();
+}
+static void onMenuItemCopyToClick(void){copyOrMoveTo(false);}
+static void onMenuItemMoveToClick(void){copyOrMoveTo(true);}
