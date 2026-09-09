@@ -125,6 +125,12 @@ static inline void loadStrings_pt() {
     lc_str.md5_title = L"MD5";
     lc_str.copy_to = L"Copiar Para...";
     lc_str.move_to = L"Mover Para...";
+    lc_str.add_to_favorites = L"Adicionar aos Favoritos";
+    lc_str.tools_menu = L"Ferramentas";
+    lc_str.tool_notepad = L"Bloco de Notas";
+    lc_str.tool_cmd = L"Prompt de Comando";
+    lc_str.tool_regedit = L"Editor de Registro";
+    lc_str.tool_taskmgr = L"Gerenciador de Tarefas";
 }
 
 #endif

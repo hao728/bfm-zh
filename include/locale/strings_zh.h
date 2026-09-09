@@ -123,6 +123,12 @@ static inline void loadStrings_zh() {
     lc_str.md5_title = L"MD5\u6821\u9a8c";
     lc_str.copy_to = L"\u590d\u5236\u5230...";
     lc_str.move_to = L"\u79fb\u52a8\u5230...";
+    lc_str.add_to_favorites = L"\u6dfb\u52a0\u5230\u6536\u85cf";
+    lc_str.tools_menu = L"\u5de5\u5177";
+    lc_str.tool_notepad = L"\u8bb0\u4e8b\u672c";
+    lc_str.tool_cmd = L"\u547d\u4ee4\u63d0\u793a\u7b26";
+    lc_str.tool_regedit = L"\u6ce8\u518c\u8868\u7f16\u8f91\u5668";
+    lc_str.tool_taskmgr = L"\u4efb\u52a1\u7ba1\u7406\u5668";
 }
 
 #endif

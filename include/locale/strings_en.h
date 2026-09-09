@@ -125,6 +125,12 @@ static inline void loadStrings_en() {
     lc_str.md5_title = L"MD5 Checksum";
     lc_str.copy_to = L"Copy To...";
     lc_str.move_to = L"Move To...";
+    lc_str.add_to_favorites = L"Add to Favorites";
+    lc_str.tools_menu = L"Tools";
+    lc_str.tool_notepad = L"Notepad";
+    lc_str.tool_cmd = L"Command Prompt";
+    lc_str.tool_regedit = L"Registry Editor";
+    lc_str.tool_taskmgr = L"Task Manager";
 }
 
 #endif
