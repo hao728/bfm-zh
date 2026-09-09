@@ -42,6 +42,8 @@ static inline void timetToFileTime(time_t t, LPFILETIME result) {
 }
 
 #include "resource.h"
+#include "theme.h"
+#include "config.h"
 #include "content_view.h"
 #include "toolbar.h"
 #include "navbar.h"
