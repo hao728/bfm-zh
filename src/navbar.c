@@ -1,5 +1,7 @@
-#include "main.h"
+// shlwapi.h MUST precede main.h: main.h pulls in <strsafe.h>, whose macros break
+// mingw-w64's shlwapi.h declarations if strsafe.h is seen first.
 #include <shlwapi.h>
+#include "main.h"
 
 struct AddrButton { 
     HWND hwnd;
