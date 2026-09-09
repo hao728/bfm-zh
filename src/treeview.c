@@ -6,6 +6,45 @@ extern HWND hwndMain;
 
 HWND hwndTreeview = NULL;
 
+// Favorites branch uses sentinel lParam values (negative) so they never collide
+// with a heap FileNode pointer. Root = FAV_ROOT_MARK, item i = FAV_ITEM_MARK - i.
+#define FAV_ROOT_MARK  ((LONG_PTR)-100)
+#define FAV_ITEM_MARK  ((LONG_PTR)-200)
+static bool isFavItem(LONG_PTR p, int* outIdx) {
+    if (p <= FAV_ITEM_MARK) { if (outIdx) *outIdx = (int)(FAV_ITEM_MARK - p); return true; }
+    return false;
+}
+
+static HTREEITEM favRootItem = NULL;
+
+static void insertFavoritesBranch(void) {
+    TVINSERTSTRUCT tvis = {0};
+    tvis.hParent = NULL;
+    tvis.hInsertAfter = TVI_LAST;
+    tvis.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN;
+    tvis.itemex.pszText = (LPWSTR)L"\u2605 \u6536\u85cf";  // ★ 收藏
+    tvis.itemex.cchTextMax = 8;
+    tvis.itemex.lParam = (LPARAM)FAV_ROOT_MARK;
+
+    wchar_t favs[FAV_MAX][MAX_PATH];
+    int n = favGetAll(favs);
+    tvis.itemex.cChildren = n > 0 ? 1 : 0;
+    favRootItem = TreeView_InsertItem(hwndTreeview, &tvis);
+
+    for (int i = 0; i < n; i++) {
+        TVINSERTSTRUCT ci = {0};
+        ci.hParent = favRootItem;
+        ci.hInsertAfter = TVI_LAST;
+        ci.itemex.mask = TVIF_TEXT | TVIF_PARAM;
+        const wchar_t* name = wcsrchr(favs[i], L'\\');
+        name = name ? name + 1 : favs[i];
+        ci.itemex.pszText = (LPWSTR)name;
+        ci.itemex.cchTextMax = wcslen(name);
+        ci.itemex.lParam = (LPARAM)(FAV_ITEM_MARK - i);
+        TreeView_InsertItem(hwndTreeview, &ci);
+    }
+}
+
 static void updateTreeItemsDeep(HTREEITEM parentItem, struct FileNode* parentNode) {
     HTREEITEM child = TreeView_GetChild(hwndTreeview, parentItem);
     
@@ -95,6 +134,8 @@ static void updateTreeItems() {
         updateTreeItemsDeep(handle, node);      
     }
     while ((node = node->sibling) != NULL);
+
+    insertFavoritesBranch();
 }
 
 static void treeItemExpand(HTREEITEM treeItem, struct FileNode* node) {
@@ -112,13 +153,17 @@ LRESULT treeviewNotify(NMHDR* nmhdr) {
     switch (nmhdr->code) {
         case TVN_ITEMEXPANDING: {
             NMTREEVIEW* nmtv = (NMTREEVIEW*)nmhdr;
-            struct FileNode* node = (struct FileNode*)nmtv->itemNew.lParam;
+            LONG_PTR lp = nmtv->itemNew.lParam;
+            if (lp == FAV_ROOT_MARK) break;  // favorites are static, no lazy load
+            struct FileNode* node = (struct FileNode*)lp;
             if (nmtv->action == TVE_EXPAND) treeItemExpand(nmtv->itemNew.hItem, node);
             break;
         }
         case TVN_ITEMEXPANDED: {
             NMTREEVIEW* nmtv = (NMTREEVIEW*)nmhdr;
-            struct FileNode* node = (struct FileNode*)nmtv->itemNew.lParam;
+            LONG_PTR lp = nmtv->itemNew.lParam;
+            if (lp == FAV_ROOT_MARK) break;
+            struct FileNode* node = (struct FileNode*)lp;
             if (nmtv->action == TVE_COLLAPSE) {
                 treeItemCollapse(nmtv->itemNew.hItem, node);
             }
@@ -135,8 +180,41 @@ LRESULT treeviewNotify(NMHDR* nmhdr) {
                 item.hItem = tvhti.hItem;
                 item.mask = TVIF_PARAM;
                 TreeView_GetItem(hwndTreeview, &item);
-                struct FileNode* node = (struct FileNode*)item.lParam;
-                navigateToFileNode(node);
+                LONG_PTR lp = item.lParam;
+                int favIdx;
+                if (isFavItem(lp, &favIdx)) {
+                    wchar_t favs[FAV_MAX][MAX_PATH];
+                    int n = favGetAll(favs);
+                    if (favIdx >= 0 && favIdx < n && favs[favIdx][0]) {
+                        navigateToPath(favs[favIdx]);
+                    }
+                }
+                else if (lp != FAV_ROOT_MARK) {
+                    struct FileNode* node = (struct FileNode*)lp;
+                    navigateToFileNode(node);
+                }
+            }
+            break;
+        }
+        case NM_RCLICK: {
+            TVHITTESTINFO tvhti;
+            GetCursorPos(&tvhti.pt);
+            ScreenToClient(hwndTreeview, &tvhti.pt);
+            TreeView_HitTest(hwndTreeview, &tvhti);
+            if (tvhti.hItem != NULL && (tvhti.flags & TVHT_ONITEM)) {
+                TVITEM item;
+                item.hItem = tvhti.hItem;
+                item.mask = TVIF_PARAM;
+                TreeView_GetItem(hwndTreeview, &item);
+                int favIdx;
+                if (isFavItem(item.lParam, &favIdx)) {
+                    HMENU m = CreatePopupMenu();
+                    AppendMenuW(m, MF_STRING, 1, L"\u79fb\u9664\u6536\u85cf");  // 移除收藏
+                    POINT pt; GetCursorPos(&pt);
+                    int cmd = TrackPopupMenu(m, TPM_RETURNCMD, pt.x, pt.y, 0, hwndTreeview, NULL);
+                    DestroyMenu(m);
+                    if (cmd == 1) favRemoveAt(favIdx);
+                }
             }
             break;
         }
@@ -164,4 +242,10 @@ void createTreeview() {
 
     updateTreeItems();
     UpdateWindow(hwndTreeview);
+}
+
+// Rebuild the whole tree so the Favorites branch reflects the registry.
+void favRefreshTree(void) {
+    if (!hwndTreeview) return;
+    updateTreeItems();
 }

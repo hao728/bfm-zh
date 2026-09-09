@@ -96,6 +96,23 @@ static void tabsSyncCurrent(const wchar_t* path) {
     TabCtrl_SetItem(hwndTabs, activeTab, &ti);
 }
 
+// Public tab API used by keyboard shortcuts (Ctrl+T / Ctrl+W) and menus.
+void tabNew(void) {
+    if (!hwndTabs || tabCount >= MAX_TABS) return;
+    tabsSaveCurrent();
+    wchar_t cur[MAX_PATH] = {0};
+    if (currPathFileNode) getFileNodePath(currPathFileNode, cur);
+    tabsAdd(cur[0] ? cur : NULL);
+    if (cur[0]) navigateToPath(cur);
+}
+
+void tabCloseActive(void) {
+    if (!hwndTabs || tabCount <= 1) return;
+    int sel = TabCtrl_GetCurSel(hwndTabs);
+    if (sel < 0) sel = activeTab;
+    tabsClose(sel);
+}
+
 // --- Dual-pane layout ------------------------------------------------------------------
 #define PANE_FRAME 2
 static RECT paneCell[2] = {0};
@@ -446,6 +463,12 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_NAV_RECENT: recentMenu(); break;
         case ID_VIEW_GAME_MODE: onMenuItemGameModeClick(); break;
         case ID_VIEW_COMPARE: onMenuItemComparePanesClick(); break;
+        case ID_TAB_NEW: tabNew(); break;
+        case ID_TAB_CLOSE: tabCloseActive(); break;
+        case ID_TOOL_NOTEPAD: ShellExecuteW(NULL, L"open", L"notepad.exe", NULL, NULL, SW_SHOW); break;
+        case ID_TOOL_CMD: ShellExecuteW(NULL, L"open", L"cmd.exe", NULL, NULL, SW_SHOW); break;
+        case ID_TOOL_REGEDIT: ShellExecuteW(NULL, L"open", L"regedit.exe", NULL, NULL, SW_SHOW); break;
+        case ID_TOOL_TASKMGR: ShellExecuteW(NULL, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOW); break;
     }
 }
 
@@ -567,6 +590,19 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
                     SetBkColor(hdc, active ? RGB(0, 120, 215) : themeFaceBg());
                     return (LRESULT)(active ? paneLabelActiveBrush : paneLabelInactiveBrush);
                 }
+            }
+            break;
+        }
+        case WM_PARENTNOTIFY: {
+            // Middle-click on a tab closes it.
+            if (LOWORD(wParam) == WM_MBUTTONDOWN && (HWND)lParam == hwndTabs) {
+                DWORD pos = GetMessagePos();
+                POINT pt = {(short)LOWORD(pos), (short)HIWORD(pos)};
+                ScreenToClient(hwndTabs, &pt);
+                TCHITTESTINFO thti = {0};
+                thti.pt = pt;
+                int idx = TabCtrl_HitTest(hwndTabs, &thti);
+                if (idx >= 0) tabsClose(idx);
             }
             break;
         }
@@ -724,6 +760,15 @@ static void createMainMenu() {
     AppendMenu(hmNav, MF_STRING, ID_NAV_FORWARD, lc_str.nav_forward);
     AppendMenu(hmNav, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmNav, MF_STRING, ID_NAV_RECENT, lc_str.recent_places);
+    AppendMenu(hmNav, MF_SEPARATOR, 0, NULL);
+    AppendMenu(hmNav, MF_STRING, ID_TAB_NEW, L"Ctrl+T  New Tab");
+    AppendMenu(hmNav, MF_STRING, ID_TAB_CLOSE, L"Ctrl+W  Close Tab");
+
+    HMENU hmTools = CreatePopupMenu();
+    AppendMenu(hmTools, MF_STRING, ID_TOOL_NOTEPAD, lc_str.tool_notepad);
+    AppendMenu(hmTools, MF_STRING, ID_TOOL_CMD, lc_str.tool_cmd);
+    AppendMenu(hmTools, MF_STRING, ID_TOOL_REGEDIT, lc_str.tool_regedit);
+    AppendMenu(hmTools, MF_STRING, ID_TOOL_TASKMGR, lc_str.tool_taskmgr);
 
     HMENU hmLang = CreatePopupMenu();
     AppendMenu(hmLang, MF_STRING, ID_LANG_EN, L"English");
@@ -739,6 +784,7 @@ static void createMainMenu() {
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmEdit, lc_str.edit);
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmNav, lc_str.nav_menu);
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmView, lc_str.view);
+    AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmTools, lc_str.tools_menu);
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmLang, lc_str.language);
     AppendMenu(hmMain, MF_POPUP, (UINT_PTR)hmHelp, lc_str.help);
 

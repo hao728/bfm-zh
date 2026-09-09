@@ -1,4 +1,5 @@
 #include "main.h"
+#include <shlwapi.h>
 
 struct AddrButton { 
     HWND hwnd;
@@ -430,6 +431,9 @@ void createNavbar() {
     hwndAddrEdit = CreateWindowEx(0, WC_EDIT, NULL, WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL | ES_LEFT,
                                   0, 0, 0, 0, hwndAddrEditWrapper, (HMENU)NULL, globalHInstance, NULL);
     SendMessage(hwndAddrEdit, WM_SETFONT, (WPARAM)getUIFont(), 0);
+    // Filesystem path autocomplete (dropdown + inline suggest). Must run before
+    // we subclass the edit, so AddrEditOrigWndProc chains to shlwapi's handler.
+    SHAutoComplete(hwndAddrEdit, SHACF_AUTOAPPEND_FORCE_ON | SHACF_AUTOSUGGEST_FORCE_ON | SHACF_FILESYS_ONLY);
     AddrEditOrigWndProc = (WNDPROC)SetWindowLongPtr(hwndAddrEdit, GWLP_WNDPROC, (LONG_PTR)AddrEditWndProc);     
     
     hwndSearchEditWrapper = CreateWindowEx(0, WC_STATIC, NULL, WS_VISIBLE | WS_CHILD | WS_BORDER, 

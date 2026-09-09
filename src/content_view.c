@@ -81,6 +81,7 @@ static void onMenuItemFolderSizeClick(void);
 void onMenuItemComparePanesClick(void);
 static void onMenuItemCopyToClick(void);
 static void onMenuItemMoveToClick(void);
+static void onMenuItemAddToFavClick(void);
 void recentMenu(void);
 void navGoBack(void);
 void navGoForward(void);
@@ -115,6 +116,7 @@ static struct ContextMenuItem cmiBatchRename = {NULL, &onMenuItemBatchRenameClic
 static struct ContextMenuItem cmiFolderSize = {NULL, &onMenuItemFolderSizeClick, NULL};
 static struct ContextMenuItem cmiCopyTo = {NULL, &onMenuItemCopyToClick, NULL};
 static struct ContextMenuItem cmiMoveTo = {NULL, &onMenuItemMoveToClick, NULL};
+static struct ContextMenuItem cmiAddToFav = {NULL, &onMenuItemAddToFavClick, NULL};
 
 static WNDPROC OrigWndProc;
 
@@ -756,6 +758,7 @@ static void createContextMenu(enum ContextMenuType type) {
             addContextMenuItem(hMenu, id++, &cmiFolderSize, false);
             addContextMenuItem(hMenu, id++, &cmiCopyTo, false);
             addContextMenuItem(hMenu, id++, &cmiMoveTo, false);
+            addContextMenuItem(hMenu, id++, &cmiAddToFav, false);
             addContextMenuItem(hMenu, id++, &cmiProperties, false);
         }
     }
@@ -1120,6 +1123,8 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 case 'X': if (ctrl) onMenuItemCutClick(); break;
                 case 'V': if (ctrl) onMenuItemPasteClick(); break;
                 case 'A': if (ctrl) onMenuItemSelectAllClick(); break;
+                case 'T': if (ctrl) tabNew(); break;
+                case 'W': if (ctrl) tabCloseActive(); break;
             }
             break;
         }
@@ -1363,6 +1368,7 @@ void createContentView() {
     cmiFolderSize.text = lc_str.folder_size;
     cmiCopyTo.text = lc_str.copy_to;
     cmiMoveTo.text = lc_str.move_to;
+    cmiAddToFav.text = lc_str.add_to_favorites;
     cmiBatchRename.text = lc_str.batch_rename;
 
     // Restore saved view style from registry
@@ -2646,3 +2652,16 @@ static void copyOrMoveTo(bool isMove) {
 }
 static void onMenuItemCopyToClick(void){copyOrMoveTo(false);}
 static void onMenuItemMoveToClick(void){copyOrMoveTo(true);}
+
+// ---------- Add to Favorites ----------
+static void onMenuItemAddToFavClick(void) {
+    updateSelectedItems();
+    if (numSelectedItems == 0) return;
+    int added = 0;
+    for (int i = 0; i < numSelectedItems; i++) {
+        wchar_t path[MAX_PATH] = {0};
+        getFileNodePath(selectedItems[i], path);
+        if (path[0] && favAdd(path)) added++;
+    }
+    if (added > 0) favRefreshTree();
+}
