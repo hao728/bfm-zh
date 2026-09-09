@@ -44,6 +44,30 @@
 #define ID_VIEW_SPLIT 312
 #define ID_VIEW_HIDDEN 313
 #define ID_FILE_PROPERTIES 314
+#define ID_EDIT_COPY_PATH 315
+#define ID_FILE_OPEN_CMD 316
+#define ID_LANG_EN 320
+#define ID_LANG_ZH 321
+#define ID_LANG_PT 322
+#define ID_LANG_RU 323
+#define ID_MOUNT_ISO 330
+#define ID_UNMOUNT_ISO 331
+#define ID_FILE_NEW_TXT 317
+#define ID_FILE_NEW_BAT 318
+#define ID_FILE_NEW_REG 319
+#define ID_EDIT_HASH 324
+#define ID_NAV_BACK 370
+#define ID_NAV_FORWARD 371
+#define ID_FILE_EXTRACT_ICON 372
+#define ID_FILE_MD5 373
+#define ID_FILE_VIEW_TEXT 374
+#define ID_FILE_BATCH_RENAME 375
+#define ID_FILE_FOLDER_SIZE 376
+#define ID_VIEW_GAME_MODE 377
+#define ID_VIEW_COMPARE 378
+#define ID_NAV_RECENT 379
+#define IDD_HASH 148
+#define IDC_HASH_RESULT 149
 
 #define IDD_PROPERTIES 130
 #define IDC_PROP_NAME 131
@@ -54,6 +78,14 @@
 #define IDC_PROGRESS 136
 #define IDC_ATTR_READONLY 137
 #define IDC_ATTR_HIDDEN 138
+#define IDC_PROP_LNAME 140
+#define IDC_PROP_LTYPE 141
+#define IDC_PROP_LLOCATION 142
+#define IDC_PROP_LSIZE 143
+#define IDC_PROP_LMODIFIED 144
+#define IDC_PROP_LATTRIBUTES 145
+#define IDC_APP_MODIFIER 146
+#define IDC_APP_REPO 147
 
 #ifndef IDC_STATIC
 #define IDC_STATIC -1
@@ -76,6 +108,7 @@
 #ifndef RESOURCE_H
 #define RESOURCE_H
 
+#ifndef RC_INVOKED
 struct LC_STR {
     wchar_t* app_name;
     wchar_t* app_version;
@@ -151,6 +184,53 @@ struct LC_STR {
     wchar_t* msg_confirm_delete_item;
     wchar_t* msg_confirm_delete_multiple_items;
     wchar_t* msg_confirm_exit_app;
+    wchar_t* prop_name;
+    wchar_t* prop_type;
+    wchar_t* prop_location;
+    wchar_t* prop_size;
+    wchar_t* prop_modified;
+    wchar_t* prop_attributes;
+    wchar_t* prop_readonly;
+    wchar_t* prop_hidden;
+    wchar_t* copy_path;
+    wchar_t* open_cmd;
+    wchar_t* language;
+    wchar_t* mount;
+    wchar_t* mount_iso;
+    wchar_t* memory;
+    wchar_t* cpu;
+    wchar_t* free_space;
+    wchar_t* modifier;
+    wchar_t* repo_link;
+    wchar_t* new_txt;
+    wchar_t* new_bat;
+    wchar_t* new_reg;
+    wchar_t* hash_calc;
+    wchar_t* hash_md5;
+    wchar_t* hash_sha1;
+    wchar_t* new_file_submenu;
+    wchar_t* nav_menu;
+    wchar_t* nav_back;
+    wchar_t* nav_forward;
+    wchar_t* extract_icon;
+    wchar_t* calc_md5;
+    wchar_t* view_text;
+    wchar_t* batch_rename;
+    wchar_t* folder_size;
+    wchar_t* game_mode;
+    wchar_t* compare_panes;
+    wchar_t* recent_places;
+    wchar_t* calculating;
+    wchar_t* text_viewer;
+    wchar_t* find_text;
+    wchar_t* replace_text;
+    wchar_t* saved_icon;
+    wchar_t* panes_same;
+    wchar_t* panes_diff;
+    wchar_t* no_recent;
+    wchar_t* md5_title;
+    wchar_t* copy_to;
+    wchar_t* move_to;
 };
 
 extern struct LC_STR lc_str;
@@ -158,6 +238,7 @@ extern struct LC_STR lc_str;
 #include "locale/strings_en.h"
 #include "locale/strings_pt.h"
 #include "locale/strings_ru.h"
+#include "locale/strings_zh.h"
 
 #define STARTS_WITH(a, b) (a[0] == b[0] && a[1] == b[1])
 
@@ -167,10 +248,15 @@ static inline void loadLCStrings(wchar_t* localeName) {
     }
     else if (STARTS_WITH(localeName, L"ru")) {
         loadStrings_ru();
-    }    
+    }
+    else if (STARTS_WITH(localeName, L"zh")) {
+        loadStrings_zh();
+    }
     else loadStrings_en();
 }
 
 #undef STARTS_WITH
 
-#endif
+#endif /* RC_INVOKED */
+
+#endif /* RESOURCE_H */

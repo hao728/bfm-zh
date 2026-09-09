@@ -7,6 +7,10 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
+// SysLink control (NMLINK/PNMLINK) requires commctrl v6+
+#ifndef _WIN32_IE
+#define _WIN32_IE 0x0600
+#endif
 #include <windows.h>
 #include <commctrl.h>
 #include <wingdi.h>
@@ -63,10 +67,20 @@ void navigateToFileNode(struct FileNode* node);
 void navigateToPath(wchar_t* path);
 void navigateUp();
 void navigateRefresh();
+void navGoBack(void);
+void navGoForward(void);
+void navPushHistory(wchar_t* path);
+void recentAdd(wchar_t* path);
+void recentMenu(void);
+void onMenuItemGameModeClick(void);
+void onMenuItemComparePanesClick(void);
 void openFileNode(struct FileNode* node);
 void GetWindowRectInParent(HWND hwnd, RECT* rect);
 void resizeControls();
 HFONT getUIFont(void);
+void createStatusbar(void);
+void setStatusbarText(wchar_t* text);
+void setStatusbarParts(wchar_t* p0, wchar_t* p1, wchar_t* p2, wchar_t* p3);
 bool isDarkMode(void);
 COLORREF themeFaceBg(void);
 COLORREF themeFaceText(void);
