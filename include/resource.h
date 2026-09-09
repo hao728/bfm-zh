@@ -66,6 +66,12 @@
 #define ID_VIEW_GAME_MODE 377
 #define ID_VIEW_COMPARE 378
 #define ID_NAV_RECENT 379
+#define ID_TOOL_NOTEPAD 380
+#define ID_TOOL_CMD 381
+#define ID_TOOL_REGEDIT 382
+#define ID_TOOL_TASKMGR 383
+#define ID_TAB_NEW 384
+#define ID_TAB_CLOSE 385
 #define IDD_HASH 148
 #define IDC_HASH_RESULT 149
 
@@ -231,6 +237,13 @@ struct LC_STR {
     wchar_t* md5_title;
     wchar_t* copy_to;
     wchar_t* move_to;
+    // Stage 2: favorites, quick-launch tools, tabs
+    wchar_t* add_to_favorites;
+    wchar_t* tools_menu;
+    wchar_t* tool_notepad;
+    wchar_t* tool_cmd;
+    wchar_t* tool_regedit;
+    wchar_t* tool_taskmgr;
 };
 
 extern struct LC_STR lc_str;

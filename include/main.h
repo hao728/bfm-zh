@@ -44,6 +44,7 @@ static inline void timetToFileTime(time_t t, LPFILETIME result) {
 #include "resource.h"
 #include "theme.h"
 #include "config.h"
+#include "favorites.h"
 #include "content_view.h"
 #include "toolbar.h"
 #include "navbar.h"
@@ -69,6 +70,8 @@ void navigateToFileNode(struct FileNode* node);
 void navigateToPath(wchar_t* path);
 void navigateUp();
 void navigateRefresh();
+void tabNew(void);
+void tabCloseActive(void);
 void navGoBack(void);
 void navGoForward(void);
 void navPushHistory(wchar_t* path);
