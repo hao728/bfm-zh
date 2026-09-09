@@ -72,6 +72,30 @@ static void tabsClose(int idx) {
     tabsRestore(activeTab);
 }
 
+// Called after every navigation: persist current path into the active tab and
+// refresh its label so the tab bar reflects where the user is.
+static void tabsSyncCurrent(const wchar_t* path) {
+    if (!hwndTabs || activeTab < 0 || activeTab >= tabCount) return;
+    if (path) wcscpy_s(tabStates[activeTab].path, MAX_PATH, path);
+    wchar_t label[64] = {0};
+    if (path && path[0]) {
+        const wchar_t* name = wcsrchr(path, L'\\');
+        name = name ? name + 1 : path;
+        if (!name[0]) {
+            // drive root like "C:\" — show "C:"
+            wcsncpy_s(label, 64, path, 2);
+        } else {
+            wcscpy_s(label, 64, name);
+        }
+    } else {
+        wcscpy_s(label, 64, L"此电脑");
+    }
+    TCITEMW ti = {0};
+    ti.mask = TCIF_TEXT;
+    ti.pszText = label;
+    TabCtrl_SetItem(hwndTabs, activeTab, &ti);
+}
+
 // --- Dual-pane layout ------------------------------------------------------------------
 #define PANE_FRAME 2
 static RECT paneCell[2] = {0};
@@ -444,22 +468,27 @@ void resizeControls() {
     SetWindowPos(hwndNavbar, NULL, 0, toolbarRect.bottom, rect.right, navbarHeight, SWP_NOZORDER);
     GetWindowRectInParent(hwndNavbar, &navbarRect);
 
-    // Tab bar sits below navbar
-    RECT tabsRect;
-    int tabsHeight = 24;
-    SetWindowPos(hwndTabs, NULL, 0, navbarRect.bottom, rect.right, tabsHeight, SWP_NOZORDER);
-    GetWindowRectInParent(hwndTabs, &tabsRect);
+    // Tab bar sits below navbar. Guard against NULL: resizeControls can be
+    // entered during early control creation before the tab bar exists.
+    int contentTop = navbarRect.bottom;
+    if (hwndTabs) {
+        int tabsHeight = 24;
+        SetWindowPos(hwndTabs, NULL, 0, navbarRect.bottom, rect.right, tabsHeight, SWP_NOZORDER);
+        RECT tabsRect;
+        GetWindowRectInParent(hwndTabs, &tabsRect);
+        contentTop = tabsRect.bottom;
+    }
 
     RECT treeviewRect;
     GetWindowRectInParent(hwndTreeview, &treeviewRect);
-    int treeviewHeight = statusbarRect.top - tabsRect.bottom;
-    SetWindowPos(hwndTreeview, NULL, 0, tabsRect.bottom, treeviewRect.right, treeviewHeight, SWP_NOZORDER);
+    int treeviewHeight = statusbarRect.top - contentTop;
+    SetWindowPos(hwndTreeview, NULL, 0, contentTop, treeviewRect.right, treeviewHeight, SWP_NOZORDER);
 
     const int sizebarWidth = 5;
-    SetWindowPos(hwndSizebar, NULL, treeviewRect.right, tabsRect.bottom, sizebarWidth, treeviewHeight, SWP_NOZORDER);
+    SetWindowPos(hwndSizebar, NULL, treeviewRect.right, contentTop, sizebarWidth, treeviewHeight, SWP_NOZORDER);
 
     int contentViewX = treeviewRect.right + sizebarWidth;
-    int contentY = tabsRect.bottom;
+    int contentY = contentTop;
     int contentW = rect.right - contentViewX;
     int contentH = treeviewHeight;
 
@@ -616,6 +645,7 @@ void navigateToFileNode(struct FileNode* node) {
         clearContentView();
         setCurrPathFileNode(node);
         navigateRefresh();
+        tabsSyncCurrent(p);
     }
 }
 
@@ -623,9 +653,10 @@ void navigateToPath(wchar_t* path) {
     if (path) {
         navPushHistory(path); recentAdd(path);
         clearAddrButtons();
-        clearContentView();   
+        clearContentView();
         setCurrPathFromString(path);
         navigateRefresh();
+        tabsSyncCurrent(path);
     }
 }
 
@@ -635,6 +666,9 @@ void navigateUp() {
         clearContentView();
         setCurrPathFileNode(currPathFileNode->parent);
         navigateRefresh();
+        wchar_t p[MAX_PATH]={0};
+        getFileNodePath(currPathFileNode, p);
+        tabsSyncCurrent(p);
     }
 }
 
@@ -763,19 +797,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     createMainMenu();
     createToolbar();
     createNavbar();
-    createTreeview();
-    createSizebar();
-    createContentView();
-    cvInitPanePaths();
-    createStatusbar();
 
-    // Tab control (sits below navbar, above content area)
+    // Tab control must exist before createContentView, because control creation
+    // triggers WM_SIZE -> resizeControls, which positions content below the tab bar.
     hwndTabs = CreateWindowEx(0, WC_TABCONTROLW, L"",
         WS_CHILD | WS_CLIPSIBLINGS | TCS_FIXEDWIDTH | TCS_TOOLTIPS,
         0, 0, 200, 24, hwndMain, NULL, hInstance, NULL);
     TabCtrl_SetItemSize(hwndTabs, 120, 22);
     ShowWindow(hwndTabs, SW_SHOW);
-    tabsAdd(NULL);  // initial tab: "此电脑"
+    tabsAdd(NULL);  // initial tab
+
+    createTreeview();
+    createSizebar();
+    createContentView();
+    cvInitPanePaths();
+    createStatusbar();
 
     setViewStyle(STYLE_DETAILS);
     int treeviewWidth = hwndWidth * 0.2f;
