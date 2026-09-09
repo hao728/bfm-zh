@@ -27,7 +27,7 @@ jobs:
           RC=x86_64-w64-mingw32-windres
           INCLUDES="-I./include -I./include/libcdio"
           CFLAGS="-O2 -std=c99 -DUNICODE -D_UNICODE -DCOBJMACROS -DWINVER=0x0600 -Wall"
-          SRCS="main theme config content_view toolbar navbar treeview sizebar statusbar file_node file_actions input_dialog"
+          SRCS="main theme config favorites content_view toolbar navbar treeview sizebar statusbar file_node file_actions input_dialog"
 
           mkdir -p obj
           for f in $SRCS; do
@@ -38,7 +38,7 @@ jobs:
           $RC $INCLUDES -I./res -i res/resource.rc -o obj/resource.o
 
           # Link against the bundled x64 libcdio.dll (ISO-mount support), like upstream.
-          $CC -o wfm.exe obj/*.o -s -lcomctl32 -lgdi32 -lole32 -luuid -luxtheme ./libcdio.dll -Wl,--subsystem,windows
+          $CC -o wfm.exe obj/*.o -s -lcomctl32 -lgdi32 -lole32 -luuid -luxtheme -lshlwapi ./libcdio.dll -Wl,--subsystem,windows
 
           file wfm.exe
           ls -l wfm.exe libcdio.dll
