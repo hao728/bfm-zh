@@ -11,10 +11,68 @@ extern HWND hwndTreeview;
 
 HINSTANCE globalHInstance = NULL;
 HWND hwndMain = NULL;
+HWND hwndTabs = NULL;
 struct LC_STR lc_str = {0};
 
-// Dual-pane layout: each pane's list view sits inset by PANE_FRAME inside its cell;
-// the surrounding band is painted accent (active) or background (inactive) in WM_PAINT.
+// --- Tab bar ---------------------------------------------------------------------------
+#define MAX_TABS 16
+struct TabState {
+    wchar_t path[MAX_PATH];
+};
+static struct TabState tabStates[MAX_TABS];
+static int tabCount = 0;
+static int activeTab = 0;
+
+static void tabsSaveCurrent(void) {
+    if (activeTab < 0 || activeTab >= tabCount) return;
+    if (currPathFileNode) {
+        getFileNodePath(currPathFileNode, tabStates[activeTab].path);
+    }
+}
+
+static void tabsRestore(int idx) {
+    if (idx < 0 || idx >= tabCount) return;
+    activeTab = idx;
+    if (tabStates[idx].path[0]) {
+        navigateToPath(tabStates[idx].path);
+    }
+}
+
+static void tabsAdd(const wchar_t* path) {
+    if (tabCount >= MAX_TABS) return;
+    if (path) wcscpy_s(tabStates[tabCount].path, MAX_PATH, path);
+    else tabStates[tabCount].path[0] = L'\0';
+    wchar_t label[64] = {0};
+    if (path && path[0]) {
+        const wchar_t* name = wcsrchr(path, L'\\');
+        name = name ? name + 1 : path;
+        wcscpy_s(label, 64, name);
+    } else {
+        wcscpy_s(label, 64, L"此电脑");
+    }
+    TCITEMW ti = {0};
+    ti.mask = TCIF_TEXT;
+    ti.pszText = label;
+    TabCtrl_InsertItem(hwndTabs, tabCount, &ti);
+    tabCount++;
+    TabCtrl_SetCurSel(hwndTabs, tabCount - 1);
+    activeTab = tabCount - 1;
+}
+
+static void tabsClose(int idx) {
+    if (idx < 0 || idx >= tabCount || tabCount <= 1) return;
+    tabsSaveCurrent();
+    TabCtrl_DeleteItem(hwndTabs, idx);
+    for (int i = idx; i < tabCount - 1; i++) {
+        tabStates[i] = tabStates[i + 1];
+    }
+    tabCount--;
+    if (activeTab >= tabCount) activeTab = tabCount - 1;
+    TabCtrl_SetCurSel(hwndTabs, activeTab);
+    tabsRestore(activeTab);
+}
+
+// --- Dual-pane layout ------------------------------------------------------------------
 #define PANE_FRAME 2
 static RECT paneCell[2] = {0};
 static HMENU hViewMenu = NULL;
@@ -26,20 +84,8 @@ void cvInvalidatePaneFrames(void) {
     for (int i = 0; i < 2; i++) InvalidateRect(hwndMain, &paneCell[i], TRUE);
 }
 
-// Theme awareness: our owner-drawn controls (header, status bar, navbar buttons,
-// search box) must follow the container's light/dark theme instead of being hardcoded.
-// Dark is detected from the window background luminance; in light mode we defer to the
-// system colors so the controls match the rest of the (light) UI.
-bool isDarkMode(void) {
-    DWORD c = GetSysColor(COLOR_WINDOW);
-    return ((GetRValue(c) + GetGValue(c) + GetBValue(c)) / 3) < 128;
-}
-COLORREF themeFaceBg(void)    { return isDarkMode() ? RGB(45, 45, 45)    : GetSysColor(COLOR_BTNFACE); }
-COLORREF themeFaceText(void)  { return isDarkMode() ? RGB(225, 225, 225) : GetSysColor(COLOR_BTNTEXT); }
-COLORREF themeFaceLine(void)  { return isDarkMode() ? RGB(70, 70, 70)    : GetSysColor(COLOR_BTNSHADOW); }
-COLORREF themeFieldBg(void)   { return isDarkMode() ? RGB(45, 45, 45)    : GetSysColor(COLOR_WINDOW); }
-COLORREF themeFieldText(void) { return isDarkMode() ? RGB(230, 230, 230) : GetSysColor(COLOR_WINDOWTEXT); }
-COLORREF themePlaceholder(void){ return isDarkMode() ? RGB(150, 150, 150) : GetSysColor(COLOR_GRAYTEXT); }
+// Theme functions live in theme.c (light/dark/custom, accent color, hover/alt-row).
+// Config persistence lives in config.c (registry-backed cfgGet/cfgSet).
 
 // --- Dark non-client scrollbars -------------------------------------------------------
 // Wine paints a window's own (non-client) scrollbars with the classic light 3D look no
@@ -397,17 +443,23 @@ void resizeControls() {
     int navbarHeight = getNavbarHeight();
     SetWindowPos(hwndNavbar, NULL, 0, toolbarRect.bottom, rect.right, navbarHeight, SWP_NOZORDER);
     GetWindowRectInParent(hwndNavbar, &navbarRect);
-    
+
+    // Tab bar sits below navbar
+    RECT tabsRect;
+    int tabsHeight = 24;
+    SetWindowPos(hwndTabs, NULL, 0, navbarRect.bottom, rect.right, tabsHeight, SWP_NOZORDER);
+    GetWindowRectInParent(hwndTabs, &tabsRect);
+
     RECT treeviewRect;
     GetWindowRectInParent(hwndTreeview, &treeviewRect);
-    int treeviewHeight = statusbarRect.top - navbarRect.bottom;
-    SetWindowPos(hwndTreeview, NULL, 0, navbarRect.bottom, treeviewRect.right, treeviewHeight, SWP_NOZORDER);
-    
+    int treeviewHeight = statusbarRect.top - tabsRect.bottom;
+    SetWindowPos(hwndTreeview, NULL, 0, tabsRect.bottom, treeviewRect.right, treeviewHeight, SWP_NOZORDER);
+
     const int sizebarWidth = 5;
-    SetWindowPos(hwndSizebar, NULL, treeviewRect.right, navbarRect.bottom, sizebarWidth, treeviewHeight, SWP_NOZORDER);
+    SetWindowPos(hwndSizebar, NULL, treeviewRect.right, tabsRect.bottom, sizebarWidth, treeviewHeight, SWP_NOZORDER);
 
     int contentViewX = treeviewRect.right + sizebarWidth;
-    int contentY = navbarRect.bottom;
+    int contentY = tabsRect.bottom;
     int contentW = rect.right - contentViewX;
     int contentH = treeviewHeight;
 
@@ -540,6 +592,16 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             else if (nmhdr->hwndFrom == hwndTreeview) {
                 return treeviewNotify(nmhdr);
             }
+            else if (nmhdr->hwndFrom == hwndTabs) {
+                if (nmhdr->code == TCN_SELCHANGE) {
+                    int newSel = TabCtrl_GetCurSel(hwndTabs);
+                    if (newSel != activeTab && newSel >= 0) {
+                        tabsSaveCurrent();
+                        tabsRestore(newSel);
+                    }
+                }
+                return 0;
+            }
             else return 0;
         }
     }
@@ -665,7 +727,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     // Initialize COM for OLE drag and drop
     OleInitialize(NULL);  // OLE init required for drag-and-drop
 
-    INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_BAR_CLASSES | ICC_PROGRESS_CLASS | ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES };
+    // Initialize theme + config (registry-backed)
+    themeInit();
+
+    INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_BAR_CLASSES | ICC_PROGRESS_CLASS | ICC_LISTVIEW_CLASSES | ICC_TREEVIEW_CLASSES | ICC_TAB_CLASSES };
     InitCommonControlsEx(&icc);
 
     WNDCLASSEX wcx = {0};
@@ -703,6 +768,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     createContentView();
     cvInitPanePaths();
     createStatusbar();
+
+    // Tab control (sits below navbar, above content area)
+    hwndTabs = CreateWindowEx(0, WC_TABCONTROLW, L"",
+        WS_CHILD | WS_CLIPSIBLINGS | TCS_FIXEDWIDTH | TCS_TOOLTIPS,
+        0, 0, 200, 24, hwndMain, NULL, hInstance, NULL);
+    TabCtrl_SetItemSize(hwndTabs, 120, 22);
+    ShowWindow(hwndTabs, SW_SHOW);
+    tabsAdd(NULL);  // initial tab: "此电脑"
 
     setViewStyle(STYLE_DETAILS);
     int treeviewWidth = hwndWidth * 0.2f;
