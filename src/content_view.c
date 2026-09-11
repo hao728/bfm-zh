@@ -82,6 +82,9 @@ void onMenuItemComparePanesClick(void);
 static void onMenuItemCopyToClick(void);
 static void onMenuItemMoveToClick(void);
 static void onMenuItemAddToFavClick(void);
+void onMenuItemLauncherBoostClick(void);
+void onMenuItemLauncherChooseClick(void);
+static void onMenuItemDiffClick(void);
 void recentMenu(void);
 void navGoBack(void);
 void navGoForward(void);
@@ -117,6 +120,10 @@ static struct ContextMenuItem cmiFolderSize = {NULL, &onMenuItemFolderSizeClick,
 static struct ContextMenuItem cmiCopyTo = {NULL, &onMenuItemCopyToClick, NULL};
 static struct ContextMenuItem cmiMoveTo = {NULL, &onMenuItemMoveToClick, NULL};
 static struct ContextMenuItem cmiAddToFav = {NULL, &onMenuItemAddToFavClick, NULL};
+// Launcher (RamBooster-style): free RAM then launch the target, optionally via an external launcher exe.
+static struct ContextMenuItem cmiLauncherBoost = {NULL, &onMenuItemLauncherBoostClick, NULL};
+static struct ContextMenuItem cmiLauncherChoose = {NULL, &onMenuItemLauncherChooseClick, NULL};
+static struct ContextMenuItem cmiDiff = {NULL, &onMenuItemDiffClick, NULL};
 
 static WNDPROC OrigWndProc;
 
@@ -736,6 +743,7 @@ static void createContextMenu(enum ContextMenuType type) {
             if (selectedItems[0]->type == TYPE_FILE) {
                 addContextMenuItem(hMenu, id++, &cmiOpen, false);
                 addContextMenuItem(hMenu, id++, &cmiOpenAsAdmin, false);
+                addContextMenuItem(hMenu, id++, &cmiLauncherBoost, true);
                 createOpenWithMenu(&id);
                 addContextMenuItem(hMenu, id++, &cmiEdit, true);
                 createCDDriveContextMenu(&id);
@@ -759,6 +767,11 @@ static void createContextMenu(enum ContextMenuType type) {
             addContextMenuItem(hMenu, id++, &cmiCopyTo, false);
             addContextMenuItem(hMenu, id++, &cmiMoveTo, false);
             addContextMenuItem(hMenu, id++, &cmiAddToFav, false);
+            if (splitOn) {
+                struct Pane* other = (activeIdx == 0) ? &panes[1] : &panes[0];
+                if (ListView_GetSelectedCount(other->hwndList) > 0)
+                    addContextMenuItem(hMenu, id++, &cmiDiff, false);
+            }
             addContextMenuItem(hMenu, id++, &cmiProperties, false);
         }
     }
@@ -1370,6 +1383,9 @@ void createContentView() {
     cmiMoveTo.text = lc_str.move_to;
     cmiAddToFav.text = lc_str.add_to_favorites;
     cmiBatchRename.text = lc_str.batch_rename;
+    cmiLauncherBoost.text = lc_str.launcher_boost;
+    cmiLauncherChoose.text = lc_str.launcher_choose;
+    cmiDiff.text = lc_str.diff_files;
 
     // Restore saved view style from registry
     DWORD savedView = STYLE_DETAILS;
@@ -1462,6 +1478,31 @@ void cvToggleSplit() {
     resizeControls();
     cvInvalidatePaneFrames();
     SetFocus(panes[activeIdx].hwndList);
+}
+
+// Dual-pane sync: when the active pane navigates into a subdirectory,
+// mirror the navigation in the other pane if a same-named subdirectory exists there.
+void cvSyncOtherPane(const wchar_t* targetName) {
+    if (!splitOn || !targetName || !targetName[0]) return;
+    struct Pane* other = (activeIdx == 0) ? &panes[1] : &panes[0];
+    if (!other->currPath) return;
+    // Search other pane's children for a matching directory name.
+    for (int i = 0; i < other->numItems; i++) {
+        if (other->items[i].node->type == TYPE_DIR &&
+            wcscmp(other->items[i].node->name, targetName) == 0) {
+            // Navigate other pane into the matching subdirectory.
+            int savedActive = activeIdx;
+            activeIdx = (activeIdx == 0) ? 1 : 0;
+            currPathFileNode = other->items[i].node;
+            other->currPath = other->items[i].node;
+            buildChildNodes(other->currPath, false);
+            refreshPane(other);
+            updatePaneLabel(other);
+            activeIdx = savedActive;
+            currPathFileNode = panes[activeIdx].currPath;
+            break;
+        }
+    }
 }
 
 void onMenuItemUpClick() {
@@ -1615,6 +1656,133 @@ void onMenuItemOpenWithClick() {
         }
         FreeLibrary(hCd);
     }
+}
+
+// ===================== Launcher (RamBooster-style) =====================
+// Saved external launcher exe (optional). When unset, the target itself is launched after
+// the memory boost. Stored under HKCU\SOFTWARE\Winlator\WFM\LauncherPath (REG_SZ).
+static bool launcherGetSaved(wchar_t* out) {
+    out[0] = L'\0';
+    HKEY hk;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0, KEY_READ, &hk) == ERROR_SUCCESS) {
+        DWORD cb = MAX_PATH * sizeof(wchar_t);
+        RegQueryValueExW(hk, L"LauncherPath", NULL, NULL, (LPBYTE)out, &cb);
+        RegCloseKey(hk);
+    }
+    return (out[0] != L'\0' && isPathExists(out));
+}
+
+// Apply memory pressure in small committed/touched blocks so the OS (and Android LMK under
+// Wine) reclaims background working sets, then release everything. Conservative cap keeps
+// WFM itself alive: min(10% physical RAM, 384 MB). Mirrors RamBooster's VirtualAlloc trick.
+static void launcherBoostMemory(void) {
+    SIZE_T cap = 384ull * 1024 * 1024;
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof(ms);
+    if (GlobalMemoryStatusEx(&ms)) {
+        ULONGLONG ten = ms.ullTotalPhys / 10;
+        if ((ULONGLONG)cap > ten) cap = (SIZE_T)ten;
+    }
+    const SIZE_T BLK = 2 * 1024 * 1024;
+    int capCount = (int)(cap / BLK) + 1;
+    void** blocks = (void**)calloc(capCount, sizeof(void*));
+    if (!blocks) return;
+    int n = 0;
+    SIZE_T got = 0;
+    while (got < cap && n < capCount) {
+        void* p = VirtualAlloc(NULL, BLK, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (!p) break;
+        memset(p, 1, BLK);   // touch every page to force physical commit
+        blocks[n++] = p;
+        got += BLK;
+    }
+    Sleep(120);             // short pressure window for reclaim to happen
+    for (int i = 0; i < n; i++) VirtualFree(blocks[i], 0, MEM_RELEASE);
+    free(blocks);
+}
+
+struct LauncherArg {
+    wchar_t target[MAX_PATH];
+    wchar_t launcher[MAX_PATH];
+};
+
+static DWORD WINAPI launcherThread(LPVOID param) {
+    struct LauncherArg* a = (struct LauncherArg*)param;
+    launcherBoostMemory();
+
+    bool hasLauncher = (a->launcher[0] != L'\0');
+    wchar_t* app = hasLauncher ? a->launcher : a->target;
+
+    wchar_t workDir[MAX_PATH] = {0};
+    getParentDirFromPath(app, workDir);
+
+    wchar_t cmdLine[MAX_PATH * 2 + 8] = {0};
+    if (hasLauncher)
+        swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" \"%ls\"", a->launcher, a->target);
+    else
+        swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\"", a->target);
+
+    STARTUPINFOW si;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof(pi));
+
+    BOOL ok = CreateProcessW(app, cmdLine, NULL, NULL, FALSE, 0, NULL,
+                             workDir[0] ? workDir : NULL, &si, &pi);
+    if (ok) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    else {
+        // Fallback for non-PE targets / association-based open.
+        ShellExecuteW(hwndMain, L"open", a->target, NULL,
+                      workDir[0] ? workDir : NULL, SW_SHOW);
+    }
+    free(a);
+    return 0;
+}
+
+// Context menu entry: free RAM then run the selected file (or feed it to the saved launcher).
+void onMenuItemLauncherBoostClick(void) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    struct LauncherArg* a = (struct LauncherArg*)calloc(1, sizeof(struct LauncherArg));
+    if (!a) return;
+    getFileNodePath(selectedItems[0], a->target);
+    launcherGetSaved(a->launcher);   // empty -> launch the target itself
+    HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
+    if (h) CloseHandle(h); else free(a);
+}
+
+// Context menu entry: pick an external launcher exe (e.g. RamBooster) and remember it.
+void onMenuItemLauncherChooseClick(void) {
+    OPENFILENAMEW ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    wchar_t exePath[MAX_PATH] = {0};
+    ofn.lStructSize = sizeof(OPENFILENAMEW);
+    ofn.hwndOwner = hwndMain;
+    ofn.lpstrFilter = L"Programs (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = exePath;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lpstrTitle = lc_str.launcher_choose;
+
+    // Dynamically load comdlg32 (mirrors onMenuItemOpenWithClick to avoid an extra link lib).
+    typedef BOOL (WINAPI *PFN_GetOpenFileNameW)(LPOPENFILENAMEW);
+    HMODULE hCd = LoadLibraryW(L"comdlg32.dll");
+    if (!hCd) return;
+    PFN_GetOpenFileNameW pfn = (PFN_GetOpenFileNameW)GetProcAddress(hCd, "GetOpenFileNameW");
+    if (pfn && pfn(&ofn) && exePath[0]) {
+        HKEY hk;
+        DWORD disp = 0;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0, NULL, 0,
+                            KEY_WRITE, NULL, &hk, &disp) == ERROR_SUCCESS) {
+            RegSetValueExW(hk, L"LauncherPath", 0, REG_SZ, (const BYTE*)exePath,
+                           (DWORD)((wcslen(exePath) + 1) * sizeof(wchar_t)));
+            RegCloseKey(hk);
+        }
+    }
+    FreeLibrary(hCd);
 }
 
 void onMenuItemEditClick() {
@@ -2628,6 +2796,19 @@ void onMenuItemComparePanesClick(void) {
     swprintf_s(msg,256,L"Left only: %d   Right only: %d   Common: %d",onlyLeft,onlyRight,common);
     MessageBoxW(hwndMain,msg,(onlyLeft==0&&onlyRight==0)?lc_str.panes_same:lc_str.panes_diff,
         MB_OK|MB_ICONINFORMATION);
+}
+
+// Compare the selected file in the active pane with the first selected file in the other pane.
+static void onMenuItemDiffClick(void) {
+    struct Pane* cur = activePane();
+    struct Pane* other = (activeIdx == 0) ? &panes[1] : &panes[0];
+    int selCur = ListView_GetNextItem(cur->hwndList, -1, LVNI_SELECTED);
+    int selOther = ListView_GetNextItem(other->hwndList, -1, LVNI_SELECTED);
+    if (selCur < 0 || selOther < 0) return;
+    wchar_t leftPath[MAX_PATH], rightPath[MAX_PATH];
+    getFileNodePath(cur->items[selCur].node, leftPath);
+    getFileNodePath(other->items[selOther].node, rightPath);
+    diffShowDialog(hwndMain, leftPath, rightPath);
 }
 
 // ---------- Copy To / Move To ----------

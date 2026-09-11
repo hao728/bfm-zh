@@ -469,6 +469,7 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_TOOL_CMD: ShellExecuteW(NULL, L"open", L"cmd.exe", NULL, NULL, SW_SHOW); break;
         case ID_TOOL_REGEDIT: ShellExecuteW(NULL, L"open", L"regedit.exe", NULL, NULL, SW_SHOW); break;
         case ID_TOOL_TASKMGR: ShellExecuteW(NULL, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOW); break;
+        case ID_TOOL_LAUNCHER: onMenuItemLauncherChooseClick(); break;
     }
 }
 
@@ -682,6 +683,7 @@ void navigateToFileNode(struct FileNode* node) {
         setCurrPathFileNode(node);
         navigateRefresh();
         tabsSyncCurrent(p);
+        cvSyncOtherPane(node->name);
     }
 }
 
@@ -769,6 +771,8 @@ static void createMainMenu() {
     AppendMenu(hmTools, MF_STRING, ID_TOOL_CMD, lc_str.tool_cmd);
     AppendMenu(hmTools, MF_STRING, ID_TOOL_REGEDIT, lc_str.tool_regedit);
     AppendMenu(hmTools, MF_STRING, ID_TOOL_TASKMGR, lc_str.tool_taskmgr);
+    AppendMenu(hmTools, MF_SEPARATOR, 0, NULL);
+    AppendMenu(hmTools, MF_STRING, ID_TOOL_LAUNCHER, lc_str.launcher_choose);
 
     HMENU hmLang = CreatePopupMenu();
     AppendMenu(hmLang, MF_STRING, ID_LANG_EN, L"English");
