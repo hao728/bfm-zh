@@ -249,6 +249,7 @@ struct LC_STR {
     // Launcher (RamBooster-style): free memory then launch target / external launcher
     wchar_t* launcher_boost;
     wchar_t* launcher_choose;
+    wchar_t* launcher_exists;  // shown when a launcher is already configured
     wchar_t* diff_files;
 };
 
