@@ -9,6 +9,9 @@ on:
     branches: [ main, "feat/**" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-x64:
     runs-on: ubuntu-latest
