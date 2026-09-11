@@ -135,6 +135,9 @@ static inline void loadStrings_pt() {
     lc_str.launcher_choose = L"Definir iniciador externo\u2026";
     lc_str.launcher_exists = L"Um iniciador externo ja esta definido.\nOK = escolher outro, Cancelar = limpar";
     lc_str.launcher_run_with = L"Executar com iniciador externo";
+    lc_str.preview_pane = L"Painel de visualizacao";
+    lc_str.extract_here = L"Extrair aqui";
+    lc_str.extract_to_folder = L"Extrair para pasta";
     lc_str.diff_files = L"Comparar arquivos";
 }
 
