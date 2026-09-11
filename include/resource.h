@@ -255,6 +255,7 @@ struct LC_STR {
     wchar_t* preview_pane;
     wchar_t* extract_here;
     wchar_t* extract_to_folder;
+    wchar_t* shared_storage;
     wchar_t* diff_files;
 };
 
