@@ -45,6 +45,7 @@ static inline void timetToFileTime(time_t t, LPFILETIME result) {
 #include "theme.h"
 #include "config.h"
 #include "favorites.h"
+#include "diff.h"
 #include "content_view.h"
 #include "toolbar.h"
 #include "navbar.h"
@@ -55,6 +56,8 @@ static inline void timetToFileTime(time_t t, LPFILETIME result) {
 #include "file_actions.h"
 #include "file_utils.h"
 #include "input_dialog.h"
+
+extern HINSTANCE globalHInstance;
 #include "strings.h"
 
 #define MEMFREE(x) \
@@ -79,6 +82,8 @@ void recentAdd(wchar_t* path);
 void recentMenu(void);
 void onMenuItemGameModeClick(void);
 void onMenuItemComparePanesClick(void);
+void onMenuItemLauncherChooseClick(void);
+void cvSyncOtherPane(const wchar_t* targetName);
 void openFileNode(struct FileNode* node);
 void GetWindowRectInParent(HWND hwnd, RECT* rect);
 void resizeControls();

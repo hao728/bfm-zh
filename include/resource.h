@@ -72,6 +72,8 @@
 #define ID_TOOL_TASKMGR 383
 #define ID_TAB_NEW 384
 #define ID_TAB_CLOSE 385
+#define ID_TOOL_LAUNCHER 386
+#define ID_FILE_DIFF 387
 #define IDD_HASH 148
 #define IDC_HASH_RESULT 149
 
@@ -244,6 +246,10 @@ struct LC_STR {
     wchar_t* tool_cmd;
     wchar_t* tool_regedit;
     wchar_t* tool_taskmgr;
+    // Launcher (RamBooster-style): free memory then launch target / external launcher
+    wchar_t* launcher_boost;
+    wchar_t* launcher_choose;
+    wchar_t* diff_files;
 };
 
 extern struct LC_STR lc_str;
