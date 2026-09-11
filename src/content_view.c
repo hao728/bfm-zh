@@ -936,9 +936,12 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         DeleteObject(fillBrush);
                     }
                     // White text centered on the bar: percentage + used/total.
+                    // In Winlator all drive letters map to the same Linux filesystem,
+                    // so label them as shared storage.
                     wchar_t capText[80];
-                    swprintf_s(capText, 80, L"%d%%  %.1f/%.1f GB",
-                               (int)(pct * 100), usedGB, totalGB);
+                    swprintf_s(capText, 80, L"%d%%  %.1f/%.1fG  %ls",
+                               (int)(pct * 100), usedGB, totalGB,
+                               lc_str.shared_storage ? lc_str.shared_storage : L"shared");
                     SetTextColor(hdc, RGB(255,255,255));
                     SetBkMode(hdc, TRANSPARENT);
                     RECT textR = {barX, barY, barX + barW, barY + barH};
@@ -2211,12 +2214,41 @@ static bool find7z(wchar_t* out) {
     static const wchar_t* candidates[] = {
         L"C:\\Program Files\\7-Zip\\7z.exe",
         L"C:\\Program Files (x86)\\7-Zip\\7z.exe",
+        L"Z:\\opt\\apps\\7-Zip\\7z.exe",
+        L"Z:\\opt\\apps\\7-Zip\\7za.exe",
         NULL
     };
     for (int i = 0; candidates[i]; i++) {
         if (isPathExists(candidates[i])) { wcscpy_s(out, MAX_PATH, candidates[i]); return true; }
     }
     return false;
+}
+
+struct ExtractArg {
+    wchar_t archive[MAX_PATH];
+    wchar_t outDir[MAX_PATH];
+    wchar_t exe7z[MAX_PATH];
+};
+
+static DWORD WINAPI extractThreadProc(LPVOID param) {
+    struct ExtractArg* arg = (struct ExtractArg*)param;
+    CreateDirectoryW(arg->outDir, NULL);
+    wchar_t cmdLine[MAX_PATH * 3 + 32];
+    swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" x -y \"%ls\" -o\"%ls\"",
+               arg->exe7z, arg->archive, arg->outDir);
+    STARTUPINFOW si = {0};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = {0};
+    if (CreateProcessW(arg->exe7z, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hProcess);
+    }
+    free(arg);
+    PostMessageW(hwndMain, WM_USER_EXTRACT_DONE, 0, 0);
+    return 0;
 }
 
 static void run7zExtract(const wchar_t* archive, const wchar_t* outDir) {
@@ -2226,20 +2258,14 @@ static void run7zExtract(const wchar_t* archive, const wchar_t* outDir) {
                     L"7z", MB_OK | MB_ICONERROR);
         return;
     }
-    CreateDirectoryW(outDir, NULL);
-    wchar_t cmdLine[MAX_PATH * 3 + 32];
-    swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" x -y \"%ls\" -o\"%ls\"", exe7z, archive, outDir);
-    STARTUPINFOW si = {0};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION pi = {0};
-    if (CreateProcessW(exe7z, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-        CloseHandle(pi.hThread);
-        WaitForSingleObject(pi.hProcess, 60000);
-        CloseHandle(pi.hProcess);
-        navigateRefresh();
-    }
+    struct ExtractArg* arg = (struct ExtractArg*)malloc(sizeof(struct ExtractArg));
+    if (!arg) return;
+    wcscpy_s(arg->archive, MAX_PATH, archive);
+    wcscpy_s(arg->outDir, MAX_PATH, outDir);
+    wcscpy_s(arg->exe7z, MAX_PATH, exe7z);
+    HANDLE hThread = CreateThread(NULL, 0, extractThreadProc, arg, 0, NULL);
+    if (hThread) CloseHandle(hThread);
+    else free(arg);
 }
 
 static void onMenuItemExtractHereClick() {

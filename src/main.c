@@ -588,6 +588,7 @@ static HICON previewIcon = NULL;
 static wchar_t previewTypeName[64] = {0};
 static wchar_t previewSizeStr[32] = {0};
 static wchar_t previewDateStr[64] = {0};
+static wchar_t previewText[2048] = {0};  // first lines of text files
 
 static bool isImageExt(const wchar_t* path) {
     const wchar_t* dot = wcsrchr(path, L'.');
@@ -596,6 +597,57 @@ static bool isImageExt(const wchar_t* path) {
     return !_wcsicmp(ext, L"jpg") || !_wcsicmp(ext, L"jpeg") ||
            !_wcsicmp(ext, L"png") || !_wcsicmp(ext, L"gif") ||
            !_wcsicmp(ext, L"bmp") || !_wcsicmp(ext, L"ico");
+}
+
+static bool isTextExt(const wchar_t* path) {
+    const wchar_t* dot = wcsrchr(path, L'.');
+    if (!dot) return false;
+    const wchar_t* ext = dot + 1;
+    return !_wcsicmp(ext, L"txt") || !_wcsicmp(ext, L"log") ||
+           !_wcsicmp(ext, L"ini") || !_wcsicmp(ext, L"bat") ||
+           !_wcsicmp(ext, L"cmd") || !_wcsicmp(ext, L"reg") ||
+           !_wcsicmp(ext, L"md") || !_wcsicmp(ext, L"json") ||
+           !_wcsicmp(ext, L"xml") || !_wcsicmp(ext, L"csv") ||
+           !_wcsicmp(ext, L"conf") || !_wcsicmp(ext, L"cfg") ||
+           !_wcsicmp(ext, L"sh") || !_wcsicmp(ext, L"py") ||
+           !_wcsicmp(ext, L"c") || !_wcsicmp(ext, L"h") ||
+           !_wcsicmp(ext, L"cpp") || !_wcsicmp(ext, L"js") ||
+           !_wcsicmp(ext, L"html") || !_wcsicmp(ext, L"css");
+}
+
+static void loadPreviewText(const wchar_t* path) {
+    previewText[0] = L'\0';
+    HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return;
+    char buf[8192];
+    DWORD read = 0;
+    if (!ReadFile(hFile, buf, sizeof(buf) - 1, &read, NULL) || read == 0) {
+        CloseHandle(hFile);
+        return;
+    }
+    buf[read] = 0;
+    CloseHandle(hFile);
+    // Skip UTF-8 BOM if present.
+    int skip = (read >= 3 && (unsigned char)buf[0] == 0xEF &&
+                (unsigned char)buf[1] == 0xBB && (unsigned char)buf[2] == 0xBF) ? 3 : 0;
+    // Try UTF-8 first; fall back to ANSI.
+    int len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                  buf + skip, (int)(read - skip), NULL, 0);
+    if (len <= 0) {
+        len = MultiByteToWideChar(CP_ACP, 0, buf + skip, (int)(read - skip), NULL, 0);
+        if (len <= 0) return;
+        MultiByteToWideChar(CP_ACP, 0, buf + skip, (int)(read - skip),
+                            previewText, 2047);
+    } else {
+        MultiByteToWideChar(CP_UTF8, 0, buf + skip, (int)(read - skip),
+                            previewText, 2047);
+    }
+    previewText[2047] = L'\0';
+    // Replace control chars except tab/newline with spaces.
+    for (wchar_t* p = previewText; *p; p++) {
+        if (*p < L' ' && *p != L'\t' && *p != L'\n' && *p != L'\r') *p = L' ';
+    }
 }
 
 void previewUpdate(void) {
@@ -607,6 +659,7 @@ void previewUpdate(void) {
     previewTypeName[0] = L'\0';
     previewSizeStr[0] = L'\0';
     previewDateStr[0] = L'\0';
+    previewText[0] = L'\0';
 
     wchar_t path[MAX_PATH] = {0};
     int ftype = -1;
@@ -647,6 +700,8 @@ void previewUpdate(void) {
             OleLoadPicturePath(bstrPath, NULL, 0, 0, &IID_IPicture, (void**)&previewPic);
             SysFreeString(bstrPath);
         }
+    } else if (isTextExt(path)) {
+        loadPreviewText(path);
     }
     InvalidateRect(hwndPreview, NULL, TRUE);
 }
@@ -675,7 +730,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 return 0;
             }
 
-            // Image or large icon.
+            // Image, text preview, or large icon.
             int mediaH = 120;
             if (previewPic) {
                 long pw = 0, ph = 0;
@@ -688,9 +743,31 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                     int dw = (int)(pw * scale), dh = (int)(ph * scale);
                     int dx = margin + (contentW - dw) / 2;
                     int dy = y + (mediaH - dh) / 2;
+                    // High-quality resampling so downscaled images stay crisp in Wine.
+                    SetStretchBltMode(hdc, HALFTONE);
+                    SetBrushOrgEx(hdc, 0, 0, NULL);
                     previewPic->lpVtbl->Render(previewPic, hdc, dx, dy, dw, dh,
                                                0, ph, pw, -ph, NULL);
                 }
+            } else if (previewText[0]) {
+                // Text file: show first lines in a bordered box.
+                HBRUSH boxBg = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
+                RECT boxR = {margin, y, rc.right - margin, y + mediaH};
+                FillRect(hdc, &boxR, boxBg); DeleteObject(boxBg);
+                HPEN boxPen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DFACE));
+                HPEN oldPen = (HPEN)SelectObject(hdc, boxPen);
+                Rectangle(hdc, boxR.left, boxR.top, boxR.right, boxR.bottom);
+                SelectObject(hdc, oldPen); DeleteObject(boxPen);
+                HFONT hMono = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                    DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
+                HFONT oldf = (HFONT)SelectObject(hdc, hMono ? hMono : getUIFont());
+                SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+                SetBkMode(hdc, TRANSPARENT);
+                RECT tr = {margin + 4, y + 2, rc.right - margin - 4, y + mediaH - 2};
+                DrawTextW(hdc, previewText, -1, &tr, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
+                SelectObject(hdc, oldf);
+                if (hMono) DeleteObject(hMono);
             } else if (previewIcon) {
                 DrawIconEx(hdc, margin + (contentW - 48) / 2, y + (mediaH - 48) / 2,
                            previewIcon, 48, 48, 0, NULL, DI_NORMAL);
@@ -839,7 +916,10 @@ void resizeControls() {
 }
 
 LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) { 
+    switch (msg) {
+        case WM_USER_EXTRACT_DONE:
+            navigateRefresh();
+            break;
         case WM_SIZE: {
             resizeControls();
             break;

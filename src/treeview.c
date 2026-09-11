@@ -16,28 +16,81 @@ static bool isFavItem(LONG_PTR p, int* outIdx) {
 }
 
 static HTREEITEM favRootItem = NULL;
+static HIMAGELIST favCustomHiml = NULL;
+static int favStarIndex = -1;
 
-static void insertFavoritesBranch(void) {
-    // Attach the system image list only if it is valid (Wine may return NULL;
-    // setting a NULL list would erase icons already assigned to drive nodes).
+// Create a 16x16 golden star bitmap (magenta = transparent mask).
+static HBITMAP createStarBitmap(void) {
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    HBITMAP hbmp = CreateCompatibleBitmap(hdcScreen, 16, 16);
+    HBITMAP oldBmp = (HBITMAP)SelectObject(hdcMem, hbmp);
+    HBRUSH bg = CreateSolidBrush(RGB(255, 0, 255));
+    RECT rc = {0, 0, 16, 16};
+    FillRect(hdcMem, &rc, bg);
+    DeleteObject(bg);
+    // 10-point star polygon (concave).
+    POINT pts[10] = {
+        {8, 0}, {10, 6}, {16, 6}, {11, 10}, {13, 15},
+        {8, 12}, {3, 15}, {5, 10}, {0, 6}, {6, 6}
+    };
+    HBRUSH fill = CreateSolidBrush(RGB(255, 193, 7));   // golden yellow
+    HPEN border = CreatePen(PS_SOLID, 1, RGB(180, 120, 0)); // dark amber outline
+    HBRUSH oldBrush = (HBRUSH)SelectObject(hdcMem, fill);
+    HPEN oldPen = (HPEN)SelectObject(hdcMem, border);
+    Polygon(hdcMem, pts, 10);
+    SelectObject(hdcMem, oldBrush);
+    SelectObject(hdcMem, oldPen);
+    DeleteObject(fill);
+    DeleteObject(border);
+    SelectObject(hdcMem, oldBmp);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+    return hbmp;
+}
+
+// Build a custom image list: copy all system small icons, then append the star.
+// This keeps drive/folder icon indices valid while giving favorites a distinct icon.
+static void ensureFavImageList(void) {
+    if (favCustomHiml) return;
     HIMAGELIST himlBig, himlSmall;
     Shell_GetImageLists(&himlBig, &himlSmall);
-    if (himlSmall)
-        TreeView_SetImageList(hwndTreeview, himlSmall, TVSIL_NORMAL);
+    if (!himlSmall) return;  // Wine without system list: keep defaults.
+    int count = ImageList_GetImageCount(himlSmall);
+    favCustomHiml = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, count + 1, 1);
+    if (!favCustomHiml) return;
+    for (int i = 0; i < count; i++) {
+        HICON hIcon = ImageList_GetIcon(himlSmall, i, ILD_TRANSPARENT);
+        if (hIcon) {
+            ImageList_AddIcon(favCustomHiml, hIcon);
+            DestroyIcon(hIcon);
+        }
+    }
+    HBITMAP star = createStarBitmap();
+    if (star) {
+        favStarIndex = ImageList_AddMasked(favCustomHiml, star, RGB(255, 0, 255));
+        DeleteObject(star);
+    }
+    TreeView_SetImageList(hwndTreeview, favCustomHiml, TVSIL_NORMAL);
+}
 
-    // Root node uses a standard folder icon.
+static void insertFavoritesBranch(void) {
+    ensureFavImageList();
+
+    // Root node uses the golden star icon if available, else folder icon.
     struct FileInfo rootFi = {0};
     getFileInfo(L"C:\\", TYPE_DIR, false, &rootFi);
+    int rootIcon = (favStarIndex >= 0) ? favStarIndex : rootFi.icon;
 
     TVINSERTSTRUCT tvis = {0};
     tvis.hParent = NULL;
     tvis.hInsertAfter = TVI_LAST;
     tvis.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
-    tvis.itemex.pszText = (LPWSTR)L"\u2605 \u6536\u85cf";  // ★ 收藏
+    tvis.itemex.pszText = (LPWSTR)L"\u6536\u85cf\u5939";  // 收藏夹
     tvis.itemex.cchTextMax = 8;
     tvis.itemex.lParam = (LPARAM)FAV_ROOT_MARK;
-    tvis.itemex.iImage = rootFi.icon;
-    tvis.itemex.iSelectedImage = rootFi.icon;
+    tvis.itemex.iImage = rootIcon;
+    tvis.itemex.iSelectedImage = rootIcon;
 
     wchar_t favs[FAV_MAX][MAX_PATH];
     int n = favGetAll(favs);
@@ -56,8 +109,9 @@ static void insertFavoritesBranch(void) {
         ci.itemex.pszText = (LPWSTR)name;
         ci.itemex.cchTextMax = wcslen(name);
         ci.itemex.lParam = (LPARAM)(FAV_ITEM_MARK - i);
-        ci.itemex.iImage = fi.icon;
-        ci.itemex.iSelectedImage = fi.icon;
+        int itemIcon = (favStarIndex >= 0) ? favStarIndex : fi.icon;
+        ci.itemex.iImage = itemIcon;
+        ci.itemex.iSelectedImage = itemIcon;
         TreeView_InsertItem(hwndTreeview, &ci);
     }
 
