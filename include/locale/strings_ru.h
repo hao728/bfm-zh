@@ -138,6 +138,7 @@ static inline void loadStrings_ru() {
     lc_str.preview_pane = L"\u041f\u0430\u043d\u0435\u043b\u044c \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0430";
     lc_str.extract_here = L"\u0418\u0437\u0432\u043b\u0435\u0447\u044c \u0441\u044e\u0434\u0430";
     lc_str.extract_to_folder = L"\u0418\u0437\u0432\u043b\u0435\u0447\u044c \u0432 \u043f\u0430\u043f\u043a\u0443";
+    lc_str.shared_storage = L"\u043e\u0431\u0449\u0438\u0439";
     lc_str.diff_files = L"\u0421\u0440\u0430\u0432\u043d\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b";
 }
 

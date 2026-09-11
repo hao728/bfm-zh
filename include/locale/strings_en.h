@@ -138,6 +138,7 @@ static inline void loadStrings_en() {
     lc_str.preview_pane = L"Preview pane";
     lc_str.extract_here = L"Extract here";
     lc_str.extract_to_folder = L"Extract to folder";
+    lc_str.shared_storage = L"shared";
     lc_str.diff_files = L"Compare files";
 }
 
