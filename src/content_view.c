@@ -743,7 +743,8 @@ static void createContextMenu(enum ContextMenuType type) {
             if (selectedItems[0]->type == TYPE_FILE) {
                 addContextMenuItem(hMenu, id++, &cmiOpen, false);
                 addContextMenuItem(hMenu, id++, &cmiOpenAsAdmin, false);
-                addContextMenuItem(hMenu, id++, &cmiLauncherBoost, true);
+                addContextMenuItem(hMenu, id++, &cmiLauncherBoost, false);
+                addContextMenuItem(hMenu, id++, &cmiLauncherChoose, true);
                 createOpenWithMenu(&id);
                 addContextMenuItem(hMenu, id++, &cmiEdit, true);
                 createCDDriveContextMenu(&id);

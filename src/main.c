@@ -330,20 +330,23 @@ bool themeScrollbarsNeedRepaint(UINT msg) {
     }
 }
 
-// Shared modern UI font (Segoe UI). Larger than the classic GUI font so rows are
-// taller and easier to hit on a touchscreen, and reads more like Windows 11.
+// Shared UI font. Microsoft YaHei first (Winlator containers ship it for CJK;
+// renders sharply under Wine). Tahoma / Segoe UI fallbacks for plain Windows builds.
+// ANTIALIASED_QUALITY is more reliable than CLEARTYPE under Wine.
 static HFONT uiFont = NULL;
 HFONT getUIFont(void) {
     if (!uiFont) {
-        // Segoe UI first; Tahoma fallback for Wine builds lacking Segoe UI.
-        // Tahoma first: narrower and sharper under Wine; Segoe UI as fallback
-        uiFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        uiFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Tahoma");
+                             ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei");
         if (!uiFont)
-            uiFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            uiFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+                                 ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Tahoma");
+        if (!uiFont)
+            uiFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
         if (!uiFont)
             uiFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     }
@@ -771,8 +774,6 @@ static void createMainMenu() {
     AppendMenu(hmTools, MF_STRING, ID_TOOL_CMD, lc_str.tool_cmd);
     AppendMenu(hmTools, MF_STRING, ID_TOOL_REGEDIT, lc_str.tool_regedit);
     AppendMenu(hmTools, MF_STRING, ID_TOOL_TASKMGR, lc_str.tool_taskmgr);
-    AppendMenu(hmTools, MF_SEPARATOR, 0, NULL);
-    AppendMenu(hmTools, MF_STRING, ID_TOOL_LAUNCHER, lc_str.launcher_choose);
 
     HMENU hmLang = CreatePopupMenu();
     AppendMenu(hmLang, MF_STRING, ID_LANG_EN, L"English");
