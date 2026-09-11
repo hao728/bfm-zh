@@ -131,6 +131,9 @@ static inline void loadStrings_pt() {
     lc_str.tool_cmd = L"Prompt de Comando";
     lc_str.tool_regedit = L"Editor de Registro";
     lc_str.tool_taskmgr = L"Gerenciador de Tarefas";
+    lc_str.launcher_boost = L"Acelerar e Executar (liberar RAM)";
+    lc_str.launcher_choose = L"Definir iniciador externo\u2026";
+    lc_str.diff_files = L"Comparar arquivos";
 }
 
 #endif

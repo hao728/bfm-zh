@@ -131,6 +131,9 @@ static inline void loadStrings_en() {
     lc_str.tool_cmd = L"Command Prompt";
     lc_str.tool_regedit = L"Registry Editor";
     lc_str.tool_taskmgr = L"Task Manager";
+    lc_str.launcher_boost = L"Boost & Run (free RAM)";
+    lc_str.launcher_choose = L"Set external launcher\u2026";
+    lc_str.diff_files = L"Compare files";
 }
 
 #endif
