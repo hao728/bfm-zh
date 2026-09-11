@@ -939,7 +939,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     // In Winlator all drive letters map to the same Linux filesystem,
                     // so label them as shared storage.
                     wchar_t capText[80];
-                    swprintf_s(capText, 80, L"%d%%  %.1f/%.1fG  %ls",
+                    swprintf_s(capText, 80, L"%d%% %.0f/%.0fG %ls",
                                (int)(pct * 100), usedGB, totalGB,
                                lc_str.shared_storage ? lc_str.shared_storage : L"shared");
                     SetTextColor(hdc, RGB(255,255,255));
@@ -1718,28 +1718,40 @@ static bool launcherGetSaved(wchar_t* out) {
 // Apply memory pressure in small committed/touched blocks so the OS (and Android LMK under
 // Wine) reclaims background working sets, then release everything. Conservative cap keeps
 // WFM itself alive: min(10% physical RAM, 384 MB). Mirrors RamBooster's VirtualAlloc trick.
+// Apply memory pressure so Android's low-memory killer reclaims background
+// processes before the game starts. Parameters mirror RamBooster v2 (whose
+// default RAM_TO_USE_GB=5.50 is proven effective under Winlator): 50MB blocks,
+// touch one byte per page, gradual allocation, hold, then release everything.
 static void launcherBoostMemory(void) {
-    SIZE_T cap = 384ull * 1024 * 1024;
+    SIZE_T target = (SIZE_T)(5500ull * 1024 * 1024);  // ~5.5 GB default target
     MEMORYSTATUSEX ms;
     ms.dwLength = sizeof(ms);
-    if (GlobalMemoryStatusEx(&ms)) {
-        ULONGLONG ten = ms.ullTotalPhys / 10;
-        if ((ULONGLONG)cap > ten) cap = (SIZE_T)ten;
+    if (GlobalMemoryStatusEx(&ms) && ms.ullTotalPhys > 0) {
+        // Adapt to the device: aim for ~45% of physical RAM, clamped for safety.
+        SIZE_T adaptive = (SIZE_T)(ms.ullTotalPhys * 45 / 100);
+        const SIZE_T FLOOR = 512ull * 1024 * 1024;   // never below 512MB
+        const SIZE_T CEIL  = 6144ull * 1024 * 1024;  // never above 6GB
+        if (adaptive < FLOOR) adaptive = FLOOR;
+        if (adaptive > CEIL) adaptive = CEIL;
+        target = adaptive;
     }
-    const SIZE_T BLK = 2 * 1024 * 1024;
-    int capCount = (int)(cap / BLK) + 1;
+    const SIZE_T BLK = 50 * 1024 * 1024;  // 50MB per block (RamBooster value)
+    int capCount = (int)(target / BLK) + 1;
     void** blocks = (void**)calloc(capCount, sizeof(void*));
     if (!blocks) return;
     int n = 0;
     SIZE_T got = 0;
-    while (got < cap && n < capCount) {
+    while (got < target && n < capCount) {
         void* p = VirtualAlloc(NULL, BLK, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-        if (!p) break;
-        memset(p, 1, BLK);   // touch every page to force physical commit
+        if (!p) break;  // allocation refused: system is already under pressure
+        // Touch only one byte per 4K page: commits physical pages (required to
+        // trigger reclaim) without the bandwidth cost of memset on the block.
+        for (SIZE_T off = 0; off < BLK; off += 4096) ((volatile char*)p)[off] = 1;
         blocks[n++] = p;
         got += BLK;
+        Sleep(40);  // gradual allocation avoids stalling/killing the container
     }
-    Sleep(120);             // short pressure window for reclaim to happen
+    if (n > 0) Sleep(1500);  // hold the pressure so the LMK has time to reclaim
     for (int i = 0; i < n; i++) VirtualFree(blocks[i], 0, MEM_RELEASE);
     free(blocks);
 }
@@ -2498,7 +2510,9 @@ static HGLOBAL buildHDropFromSelection(void) {
 
     size_t hdrSize = sizeof(DROPFILES);
     size_t dataSize = totalLen * sizeof(wchar_t);
-    HGLOBAL hMem = GlobalAlloc(GHND, hdrSize + dataSize);
+    // GMEM_DDESHARE makes the block visible across processes (needed when the
+    // same HDROP is delivered to another app via WM_DROPFILES under Wine).
+    HGLOBAL hMem = GlobalAlloc(GHND | GMEM_DDESHARE, hdrSize + dataSize);
     if (!hMem) return NULL;
     DROPFILES* df = (DROPFILES*)GlobalLock(hMem);
     df->pFiles = hdrSize;
@@ -2512,14 +2526,42 @@ static HGLOBAL buildHDropFromSelection(void) {
 
 // Start dragging selected files
 // Fallback: when OLE drag is rejected by the target (common under Wine/X11),
-// detect the window under the cursor and open the dragged file with that program.
+// deliver the files to the window under the cursor. Classic Win32 programs
+// (e.g. crack/patcher tools) read drops through WM_DROPFILES and ignore command
+// line arguments, so we post a shared HDROP to the already-running window; we
+// only ShellExecute when dropping onto the desktop/taskbar (no app window).
 static void dragFallbackOpenWith(HWND hwndMain) {
     POINT pt; GetCursorPos(&pt);
     HWND target = WindowFromPoint(pt);
     if (!target) return;
     HWND top = GetAncestor(target, GA_ROOT);
-    // Skip if dropped on our own window
-    if (top == hwndMain) return;
+    if (top == hwndMain) return;  // dropped on our own window
+
+    wchar_t cls[64] = {0};
+    GetClassNameW(top, cls, 63);
+    bool isShell = !wcscmp(cls, L"Progman") || !wcscmp(cls, L"WorkerW") ||
+                   !wcscmp(cls, L"Shell_TrayWnd");
+
+    updateSelectedItems();
+    if (numSelectedItems == 0) return;
+
+    if (!isShell) {
+        // A real application window is already open: hand it a WM_DROPFILES.
+        HGLOBAL hDrop = buildHDropFromSelection();
+        if (hDrop) {
+            // Deliver to the top-level window (DragAcceptFiles is usually on it)
+            // and, if different, to the exact child under the cursor. Ownership
+            // transfers to the receiver, which releases it via DragFinish.
+            PostMessageW(top, WM_DROPFILES, (WPARAM)hDrop, 0);
+            if (target != top) {
+                HGLOBAL hDrop2 = buildHDropFromSelection();
+                if (hDrop2) PostMessageW(target, WM_DROPFILES, (WPARAM)hDrop2, 0);
+            }
+            return;
+        }
+    }
+
+    // Shell/desktop or allocation failure: fall back to launching the program.
     DWORD pid = 0;
     GetWindowThreadProcessId(target, &pid);
     if (pid == 0) return;
@@ -2530,9 +2572,6 @@ static void dragFallbackOpenWith(HWND hwndMain) {
     BOOL ok = QueryFullProcessImageNameW(hProc, 0, exePath, &exeLen);
     CloseHandle(hProc);
     if (!ok || !exePath[0]) return;
-    // Open first selected file with the target program
-    updateSelectedItems();
-    if (numSelectedItems == 0) return;
     wchar_t filePath[MAX_PATH] = {0};
     getFileNodePath(selectedItems[0], filePath);
     wchar_t workDir[MAX_PATH] = {0};
@@ -2594,11 +2633,24 @@ static ULONG STDMETHODCALLTYPE DropTarget_Release(IDropTarget* This) {
     return c;
 }
 static HWND resolveListHwnd(HWND h);
+// Resolve which list pane a screen point is over. WindowFromPoint is unreliable
+// during the DoDragDrop modal loop (mouse capture / child controls), so first
+// hit-test every pane's window rectangle, then fall back to parent walking.
+static HWND paneListAtPoint(POINTL pt) {
+    POINT sp = {pt.x, pt.y};
+    for (int i = 0; i < NUM_PANES; i++) {
+        HWND lh = panes[i].hwndList;
+        if (lh && IsWindowVisible(lh)) {
+            RECT r;
+            if (GetWindowRect(lh, &r) && PtInRect(&r, sp)) return lh;
+        }
+    }
+    return resolveListHwnd(WindowFromPoint(sp));
+}
 static HRESULT STDMETHODCALLTYPE DropTarget_DragEnter(IDropTarget* This, IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect) {
     FORMATETC fe = {CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
     ((DropTargetImpl*)This)->canAccept = (pDataObj->lpVtbl->QueryGetData(pDataObj, &fe) == S_OK);
-    POINT screenPt = {pt.x, pt.y};
-    g_dropHwnd = resolveListHwnd(WindowFromPoint(screenPt));
+    g_dropHwnd = paneListAtPoint(pt);
     *pdwEffect = ((DropTargetImpl*)This)->canAccept ? (g_dropHwnd ? DROPEFFECT_COPY : DROPEFFECT_NONE) : DROPEFFECT_NONE;
     return S_OK;
 }
@@ -2611,9 +2663,7 @@ static HWND resolveListHwnd(HWND h) {
     return NULL;
 }
 static HRESULT STDMETHODCALLTYPE DropTarget_DragOver(IDropTarget* This, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect) {
-    POINT screenPt = {pt.x, pt.y};
-    HWND h = WindowFromPoint(screenPt);
-    g_dropHwnd = resolveListHwnd(h);
+    g_dropHwnd = paneListAtPoint(pt);
     *pdwEffect = ((DropTargetImpl*)This)->canAccept ? (g_dropHwnd ? DROPEFFECT_COPY : DROPEFFECT_NONE) : DROPEFFECT_NONE;
     return S_OK;
 }

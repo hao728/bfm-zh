@@ -98,8 +98,12 @@ static void insertFavoritesBranch(void) {
     favRootItem = TreeView_InsertItem(hwndTreeview, &tvis);
 
     for (int i = 0; i < n; i++) {
+        // Detect real type: favorites may be files, not only folders.
+        DWORD attr = GetFileAttributesW(favs[i]);
+        int nodeType = (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
+                       ? TYPE_DIR : TYPE_FILE;
         struct FileInfo fi = {0};
-        getFileInfo(favs[i], TYPE_DIR, false, &fi);
+        getFileInfo(favs[i], nodeType, false, &fi);
         TVINSERTSTRUCT ci = {0};
         ci.hParent = favRootItem;
         ci.hInsertAfter = TVI_LAST;
@@ -109,6 +113,8 @@ static void insertFavoritesBranch(void) {
         ci.itemex.pszText = (LPWSTR)name;
         ci.itemex.cchTextMax = wcslen(name);
         ci.itemex.lParam = (LPARAM)(FAV_ITEM_MARK - i);
+        // All favorites share the star; fall back to the real file/folder icon
+        // only if the custom image list was unavailable.
         int itemIcon = (favStarIndex >= 0) ? favStarIndex : fi.icon;
         ci.itemex.iImage = itemIcon;
         ci.itemex.iSelectedImage = itemIcon;
@@ -138,11 +144,11 @@ static void updateTreeItemsDeep(HTREEITEM parentItem, struct FileNode* parentNod
         wchar_t parentPath[MAX_PATH] = {0};
         if (getFileNodePath(parentNode, parentPath)) wcscat_s(parentPath, MAX_PATH, L"\\");
         wchar_t path[MAX_PATH] = {0};
-        
-        HIMAGELIST himlBig, himlSmall;
-        Shell_GetImageLists(&himlBig, &himlSmall);
-        TreeView_SetImageList(hwndTreeview, himlSmall, TVSIL_NORMAL);
-        
+
+        // NOTE: do NOT TreeView_SetImageList here. The tree uses a single custom
+        // image list (system icons + favorites star) created by ensureFavImageList;
+        // resetting it to the raw system list would erase the star icon.
+
         struct FileNode* node = parentNode->children;
         do {
             swprintf_s(path, MAX_PATH, L"%ls%ls", parentPath, node->name);
@@ -168,7 +174,9 @@ static void updateTreeItemsDeep(HTREEITEM parentItem, struct FileNode* parentNod
 
 static void updateTreeItems() {
     TreeView_DeleteAllItems(hwndTreeview);
-    
+    // Single shared image list for the whole tree (system icons + favorites star).
+    ensureFavImageList();
+
     TVINSERTSTRUCT tvis;
     tvis.hParent = NULL;
     tvis.hInsertAfter = TVI_ROOT;
@@ -192,9 +200,8 @@ static void updateTreeItems() {
         }
         
         SHFILEINFO sfi = {0};
-        HIMAGELIST himl = (HIMAGELIST)SHGetFileInfo((LPCWSTR)pidl, 0, &sfi, sizeof(SHFILEINFO), SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_PIDL);
+        SHGetFileInfo((LPCWSTR)pidl, 0, &sfi, sizeof(SHFILEINFO), SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_PIDL);
         CoTaskMemFree(pidl);
-        TreeView_SetImageList(hwndTreeview, himl, TVSIL_NORMAL);
 
         tvis.itemex.cChildren = node->hasChildDirs ? 1 : 0;
         tvis.itemex.state = node->children ? TVIS_EXPANDED : 0;
@@ -261,7 +268,18 @@ LRESULT treeviewNotify(NMHDR* nmhdr) {
                     wchar_t favs[FAV_MAX][MAX_PATH];
                     int n = favGetAll(favs);
                     if (favIdx >= 0 && favIdx < n && favs[favIdx][0]) {
-                        navigateToPath(favs[favIdx]);
+                        // A favorited file is opened; a favorited folder is navigated to.
+                        DWORD attr = GetFileAttributesW(favs[favIdx]);
+                        if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                            navigateToPath(favs[favIdx]);
+                        } else {
+                            wchar_t workDir[MAX_PATH] = {0};
+                            wcscpy_s(workDir, MAX_PATH, favs[favIdx]);
+                            wchar_t* slash = wcsrchr(workDir, L'\\');
+                            if (slash) *slash = L'\0';
+                            ShellExecuteW(hwndMain, L"open", favs[favIdx], NULL,
+                                          workDir[0] ? workDir : NULL, SW_SHOWNORMAL);
+                        }
                     }
                 }
                 else if (lp != FAV_ROOT_MARK) {

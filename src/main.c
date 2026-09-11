@@ -582,6 +582,8 @@ void mainMenuCommand(WPARAM wParam) {
 
 // --- Preview pane -----------------------------------------------------------------------
 static const wchar_t previewWndClass[] = L"WFM-PreviewPane";
+static const wchar_t zoomWndClass[] = L"WFM-PreviewZoom";
+static HWND hwndZoom = NULL;
 static wchar_t previewPath[MAX_PATH] = {0};
 static IPicture* previewPic = NULL;
 static HICON previewIcon = NULL;
@@ -706,8 +708,93 @@ void previewUpdate(void) {
     InvalidateRect(hwndPreview, NULL, TRUE);
 }
 
+// Full-size image viewer opened by clicking the preview pane's thumbnail.
+static LRESULT CALLBACK ZoomWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rc; GetClientRect(hwnd, &rc);
+            HBRUSH bg = CreateSolidBrush(RGB(30, 30, 30));
+            FillRect(hdc, &rc, bg); DeleteObject(bg);
+            if (previewPic) {
+                long pw = 0, ph = 0;
+                previewPic->lpVtbl->get_Width(previewPic, &pw);
+                previewPic->lpVtbl->get_Height(previewPic, &ph);
+                if (pw > 0 && ph > 0) {
+                    // IPicture reports HIMETRIC (0.01mm); convert to pixels.
+                    HDC scr = GetDC(NULL);
+                    int iw = MulDiv(pw, GetDeviceCaps(scr, LOGPIXELSX), 2540);
+                    int ih = MulDiv(ph, GetDeviceCaps(scr, LOGPIXELSY), 2540);
+                    ReleaseDC(NULL, scr);
+                    // Fit inside the client area while preserving aspect ratio.
+                    double sx = (double)rc.right / (double)iw;
+                    double sy = (double)rc.bottom / (double)ih;
+                    double scale = sx < sy ? sx : sy;
+                    if (scale > 1.0) scale = 1.0;  // do not upscale beyond native size
+                    int dw = (int)(iw * scale), dh = (int)(ih * scale);
+                    int dx = (rc.right - dw) / 2, dy = (rc.bottom - dh) / 2;
+                    SetStretchBltMode(hdc, HALFTONE);
+                    SetBrushOrgEx(hdc, 0, 0, NULL);
+                    previewPic->lpVtbl->Render(previewPic, hdc, dx, dy, dw, dh,
+                                              0, ph, pw, -ph, NULL);
+                }
+            }
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_LBUTTONDOWN:
+        case WM_RBUTTONDOWN:
+        case WM_KEYDOWN:
+            if (msg != WM_KEYDOWN || wParam == VK_ESCAPE) DestroyWindow(hwnd);
+            return 0;
+        case WM_KILLFOCUS:
+            DestroyWindow(hwnd);
+            return 0;
+        case WM_DESTROY:
+            hwndZoom = NULL;
+            return 0;
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+static void openZoomWindow(void) {
+    if (!previewPic) return;
+    if (hwndZoom) { SetForegroundWindow(hwndZoom); return; }
+    long pw = 0, ph = 0;
+    previewPic->lpVtbl->get_Width(previewPic, &pw);
+    previewPic->lpVtbl->get_Height(previewPic, &ph);
+    HDC scrDc = GetDC(NULL);
+    int cw = pw > 0 ? MulDiv(pw, GetDeviceCaps(scrDc, LOGPIXELSX), 2540) : 480;
+    int ch = ph > 0 ? MulDiv(ph, GetDeviceCaps(scrDc, LOGPIXELSY), 2540) : 360;
+    ReleaseDC(NULL, scrDc);
+    // Account for the title bar + borders of an overlapped window.
+    cw += GetSystemMetrics(SM_CXFRAME) * 2;
+    ch += GetSystemMetrics(SM_CYFRAME) * 2 + GetSystemMetrics(SM_CYCAPTION);
+    // Cap to 85% of the work area so large images still fit the screen.
+    RECT work; SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    int maxW = (work.right - work.left) * 85 / 100;
+    int maxH = (work.bottom - work.top) * 85 / 100;
+    if (cw > maxW) cw = maxW;
+    if (ch > maxH) ch = maxH;
+    if (cw < 200) cw = 200;
+    if (ch < 150) ch = 150;
+    int x = work.left + ((work.right - work.left) - cw) / 2;
+    int y = work.top + ((work.bottom - work.top) - ch) / 2;
+    const wchar_t* name = wcsrchr(previewPath, L'\\');
+    hwndZoom = CreateWindowExW(WS_EX_TOPMOST, zoomWndClass,
+        name ? name + 1 : previewPath,
+        WS_OVERLAPPEDWINDOW, x, y, cw, ch, hwndMain, NULL, globalHInstance, NULL);
+    ShowWindow(hwndZoom, SW_SHOW);
+    SetFocus(hwndZoom);
+}
+
 static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+        case WM_LBUTTONDOWN:
+            // Click the thumbnail to open the full-size viewer.
+            if (previewPic) openZoomWindow();
+            return 0;
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
@@ -1214,6 +1301,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     pwc.hbrBackground = (HBRUSH)COLOR_WINDOW;
     pwc.lpszClassName = previewWndClass;
     RegisterClassEx(&pwc);
+
+    // Full-size image viewer window class.
+    WNDCLASSEX zwc = {0};
+    zwc.cbSize = sizeof(zwc);
+    zwc.style = CS_HREDRAW | CS_VREDRAW;
+    zwc.lpfnWndProc = &ZoomWndProc;
+    zwc.hInstance = hInstance;
+    zwc.hCursor = LoadCursor(hInstance, IDC_ARROW);
+    zwc.hbrBackground = (HBRUSH)(COLOR_WINDOW);
+    zwc.lpszClassName = zoomWndClass;
+    RegisterClassEx(&zwc);
 
     initFileNodes();
 
