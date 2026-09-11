@@ -250,6 +250,7 @@ struct LC_STR {
     wchar_t* launcher_boost;
     wchar_t* launcher_choose;
     wchar_t* launcher_exists;  // shown when a launcher is already configured
+    wchar_t* launcher_run_with;
     wchar_t* diff_files;
 };
 
