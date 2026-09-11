@@ -18,7 +18,7 @@ struct FileInfo {
     wchar_t typeName[80];
 };
 
-static inline bool isPathExists(wchar_t* path) {
+static inline bool isPathExists(const wchar_t* path) {
     DWORD dwAttrib = GetFileAttributes(path);
     return (dwAttrib != INVALID_FILE_ATTRIBUTES && (
            (dwAttrib & FILE_ATTRIBUTE_DIRECTORY) || (dwAttrib & FILE_ATTRIBUTE_ARCHIVE)));
