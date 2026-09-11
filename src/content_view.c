@@ -82,7 +82,9 @@ void onMenuItemComparePanesClick(void);
 static void onMenuItemCopyToClick(void);
 static void onMenuItemMoveToClick(void);
 static void onMenuItemAddToFavClick(void);
+static bool launcherGetSaved(wchar_t* out);
 void onMenuItemLauncherBoostClick(void);
+void onMenuItemLauncherRunWithClick(void);
 void onMenuItemLauncherChooseClick(void);
 static void onMenuItemDiffClick(void);
 void recentMenu(void);
@@ -122,6 +124,7 @@ static struct ContextMenuItem cmiMoveTo = {NULL, &onMenuItemMoveToClick, NULL};
 static struct ContextMenuItem cmiAddToFav = {NULL, &onMenuItemAddToFavClick, NULL};
 // Launcher (RamBooster-style): free RAM then launch the target, optionally via an external launcher exe.
 static struct ContextMenuItem cmiLauncherBoost = {NULL, &onMenuItemLauncherBoostClick, NULL};
+static struct ContextMenuItem cmiLauncherRunWith = {NULL, &onMenuItemLauncherRunWithClick, NULL};
 static struct ContextMenuItem cmiLauncherChoose = {NULL, &onMenuItemLauncherChooseClick, NULL};
 static struct ContextMenuItem cmiDiff = {NULL, &onMenuItemDiffClick, NULL};
 
@@ -744,6 +747,11 @@ static void createContextMenu(enum ContextMenuType type) {
                 addContextMenuItem(hMenu, id++, &cmiOpen, false);
                 addContextMenuItem(hMenu, id++, &cmiOpenAsAdmin, false);
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoost, false);
+                {
+                    wchar_t savedLauncher[MAX_PATH] = {0};
+                    if (launcherGetSaved(savedLauncher))
+                        addContextMenuItem(hMenu, id++, &cmiLauncherRunWith, false);
+                }
                 addContextMenuItem(hMenu, id++, &cmiLauncherChoose, true);
                 createOpenWithMenu(&id);
                 addContextMenuItem(hMenu, id++, &cmiEdit, true);
@@ -1385,6 +1393,7 @@ void createContentView() {
     cmiAddToFav.text = lc_str.add_to_favorites;
     cmiBatchRename.text = lc_str.batch_rename;
     cmiLauncherBoost.text = lc_str.launcher_boost;
+    cmiLauncherRunWith.text = lc_str.launcher_run_with;
     cmiLauncherChoose.text = lc_str.launcher_choose;
     cmiDiff.text = lc_str.diff_files;
 
@@ -1705,6 +1714,7 @@ static void launcherBoostMemory(void) {
 struct LauncherArg {
     wchar_t target[MAX_PATH];
     wchar_t launcher[MAX_PATH];
+    bool useExternal;   // true = run via external launcher; false = always run target
 };
 
 static DWORD WINAPI launcherThread(LPVOID param) {
@@ -1716,16 +1726,14 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     wchar_t targetDir[MAX_PATH] = {0};
     getParentDirFromPath(a->target, targetDir);
 
-    // If a saved launcher no longer exists, ignore it and run the target directly.
-    bool hasLauncher = (a->launcher[0] != L'\0');
-    if (hasLauncher && !isPathExists(a->launcher)) {
-        a->launcher[0] = L'\0';
-        hasLauncher = false;
-    }
-    wchar_t* app = hasLauncher ? a->launcher : a->target;
+    // "Boost & Run" always launches the target directly. The external launcher
+    // is only used when the user explicitly picks "Run with external launcher";
+    // otherwise a stale/accidental launcher would hijack every boost launch.
+    bool useExternal = a->useExternal && a->launcher[0] && isPathExists(a->launcher);
+    wchar_t* app = useExternal ? a->launcher : a->target;
 
     wchar_t cmdLine[MAX_PATH * 2 + 8] = {0};
-    if (hasLauncher)
+    if (useExternal)
         swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" \"%ls\"", a->launcher, a->target);
     else
         swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\"", a->target);
@@ -1751,13 +1759,28 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     return 0;
 }
 
-// Context menu entry: free RAM then run the selected file (or feed it to the saved launcher).
+// Context menu entry: free RAM then run the selected file directly.
+// This NEVER uses the external launcher — that is a separate explicit action.
 void onMenuItemLauncherBoostClick(void) {
     if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
     struct LauncherArg* a = (struct LauncherArg*)calloc(1, sizeof(struct LauncherArg));
     if (!a) return;
     getFileNodePath(selectedItems[0], a->target);
-    launcherGetSaved(a->launcher);   // empty -> launch the target itself
+    a->useExternal = false;
+    HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
+    if (h) CloseHandle(h); else free(a);
+}
+
+// Context menu entry: free RAM then launch the target through the saved external
+// launcher (which receives the target path as its first argument). Only shown
+// when a launcher is configured.
+void onMenuItemLauncherRunWithClick(void) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    struct LauncherArg* a = (struct LauncherArg*)calloc(1, sizeof(struct LauncherArg));
+    if (!a) return;
+    getFileNodePath(selectedItems[0], a->target);
+    launcherGetSaved(a->launcher);
+    a->useExternal = true;
     HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
     if (h) CloseHandle(h); else free(a);
 }
