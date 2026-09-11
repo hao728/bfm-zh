@@ -84,6 +84,8 @@ void onMenuItemGameModeClick(void);
 void onMenuItemComparePanesClick(void);
 void onMenuItemLauncherChooseClick(void);
 void cvSyncOtherPane(const wchar_t* targetName);
+void cvGetFirstSelected(wchar_t* path, int* type);
+void previewUpdate(void);
 void openFileNode(struct FileNode* node);
 void GetWindowRectInParent(HWND hwnd, RECT* rect);
 void resizeControls();

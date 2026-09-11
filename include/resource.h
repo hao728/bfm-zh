@@ -74,6 +74,7 @@
 #define ID_TAB_CLOSE 385
 #define ID_TOOL_LAUNCHER 386
 #define ID_FILE_DIFF 387
+#define ID_VIEW_PREVIEW 388
 #define IDD_HASH 148
 #define IDC_HASH_RESULT 149
 
@@ -251,6 +252,9 @@ struct LC_STR {
     wchar_t* launcher_choose;
     wchar_t* launcher_exists;  // shown when a launcher is already configured
     wchar_t* launcher_run_with;
+    wchar_t* preview_pane;
+    wchar_t* extract_here;
+    wchar_t* extract_to_folder;
     wchar_t* diff_files;
 };
 
