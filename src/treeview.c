@@ -18,13 +18,26 @@ static bool isFavItem(LONG_PTR p, int* outIdx) {
 static HTREEITEM favRootItem = NULL;
 
 static void insertFavoritesBranch(void) {
+    // Attach the system image list only if it is valid (Wine may return NULL;
+    // setting a NULL list would erase icons already assigned to drive nodes).
+    HIMAGELIST himlBig, himlSmall;
+    Shell_GetImageLists(&himlBig, &himlSmall);
+    if (himlSmall)
+        TreeView_SetImageList(hwndTreeview, himlSmall, TVSIL_NORMAL);
+
+    // Root node uses a standard folder icon.
+    struct FileInfo rootFi = {0};
+    getFileInfo(L"C:\\", TYPE_DIR, false, &rootFi);
+
     TVINSERTSTRUCT tvis = {0};
     tvis.hParent = NULL;
     tvis.hInsertAfter = TVI_LAST;
-    tvis.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN;
+    tvis.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
     tvis.itemex.pszText = (LPWSTR)L"\u2605 \u6536\u85cf";  // ★ 收藏
     tvis.itemex.cchTextMax = 8;
     tvis.itemex.lParam = (LPARAM)FAV_ROOT_MARK;
+    tvis.itemex.iImage = rootFi.icon;
+    tvis.itemex.iSelectedImage = rootFi.icon;
 
     wchar_t favs[FAV_MAX][MAX_PATH];
     int n = favGetAll(favs);
@@ -32,17 +45,25 @@ static void insertFavoritesBranch(void) {
     favRootItem = TreeView_InsertItem(hwndTreeview, &tvis);
 
     for (int i = 0; i < n; i++) {
+        struct FileInfo fi = {0};
+        getFileInfo(favs[i], TYPE_DIR, false, &fi);
         TVINSERTSTRUCT ci = {0};
         ci.hParent = favRootItem;
         ci.hInsertAfter = TVI_LAST;
-        ci.itemex.mask = TVIF_TEXT | TVIF_PARAM;
+        ci.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
         const wchar_t* name = wcsrchr(favs[i], L'\\');
         name = name ? name + 1 : favs[i];
         ci.itemex.pszText = (LPWSTR)name;
         ci.itemex.cchTextMax = wcslen(name);
         ci.itemex.lParam = (LPARAM)(FAV_ITEM_MARK - i);
+        ci.itemex.iImage = fi.icon;
+        ci.itemex.iSelectedImage = fi.icon;
         TreeView_InsertItem(hwndTreeview, &ci);
     }
+
+    // Expand the favorites branch by default so users see saved paths immediately.
+    if (favRootItem)
+        TreeView_Expand(hwndTreeview, favRootItem, TVE_EXPAND);
 }
 
 static void updateTreeItemsDeep(HTREEITEM parentItem, struct FileNode* parentNode) {

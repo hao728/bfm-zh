@@ -330,23 +330,57 @@ bool themeScrollbarsNeedRepaint(UINT msg) {
     }
 }
 
-// Shared UI font. Microsoft YaHei first (Winlator containers ship it for CJK;
-// renders sharply under Wine). Tahoma / Segoe UI fallbacks for plain Windows builds.
-// ANTIALIASED_QUALITY is more reliable than CLEARTYPE under Wine.
+// Try to create a font and verify the face name actually matches (CreateFontW
+// never returns NULL on a missing face — it silently substitutes, so we must
+// check GetTextFace to know whether the requested font really exists).
+static HFONT tryCreateFont(const wchar_t* face, int height) {
+    HFONT hf = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                           ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, face);
+    if (!hf) return NULL;
+    HDC hdc = GetDC(NULL);
+    HFONT old = (HFONT)SelectObject(hdc, hf);
+    wchar_t actual[LF_FACESIZE] = {0};
+    GetTextFaceW(hdc, LF_FACESIZE, actual);
+    SelectObject(hdc, old);
+    ReleaseDC(NULL, hdc);
+    if (_wcsicmp(actual, face) != 0) {
+        DeleteObject(hf);
+        return NULL;
+    }
+    return hf;
+}
+
+// Shared UI font. Strategy:
+//   1. SystemParametersInfo(SPI_GETNONCLIENTMETRICS) — the font Wine actually
+//      configured for menus/dialogs. Most reliable; no face-name guessing.
+//   2. Probe known CJK-capable faces with GetTextFace verification (CreateFontW
+//      silently substitutes on missing faces, so we must check the real name).
+//   3. DEFAULT_GUI_FONT last resort.
 static HFONT uiFont = NULL;
 HFONT getUIFont(void) {
     if (!uiFont) {
-        uiFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei");
-        if (!uiFont)
-            uiFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                 ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Tahoma");
-        if (!uiFont)
-            uiFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                 ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        // 1. System message font (Wine's configured font).
+        NONCLIENTMETRICSW ncm = {0};
+        ncm.cbSize = sizeof(ncm);
+        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0)) {
+            ncm.lfMessageFont.lfQuality = ANTIALIASED_QUALITY;
+            if (ncm.lfMessageFont.lfHeight == 0)
+                ncm.lfMessageFont.lfHeight = -12;
+            uiFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        }
+        // 2. Probe faces with verification.
+        if (!uiFont) {
+            static const wchar_t* faces[] = {
+                L"Microsoft YaHei", L"微软雅黑", L"Noto Sans CJK SC",
+                L"WenQuanYi Micro Hei", L"Tahoma", L"Segoe UI", NULL
+            };
+            for (int i = 0; faces[i]; i++) {
+                uiFont = tryCreateFont(faces[i], -12);
+                if (uiFont) break;
+            }
+        }
+        // 3. Last resort.
         if (!uiFont)
             uiFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     }
