@@ -66,6 +66,9 @@ void onMenuItemLoadISOImageClick();
 void onMenuItemUnloadISOImageClick();
 static void onMenuItemCopyPathClick();
 static void onMenuItemOpenCmdClick();
+static void onMenuItemExtractHereClick();
+static void onMenuItemExtractToFolderClick();
+static bool isArchiveExt(const wchar_t* path);
 static void startFileDrag(HWND hwnd);
 static void updateSelectedItems(void);
 static void onMenuItemNewTxtClick();
@@ -111,6 +114,8 @@ static struct ContextMenuItem cmiChooseProgram = {NULL, &onMenuItemOpenWithClick
 static struct ContextMenuItem cmiProperties = {NULL, &onMenuItemPropertiesClick, NULL};
 static struct ContextMenuItem cmiCopyPath = {NULL, &onMenuItemCopyPathClick, NULL};
 static struct ContextMenuItem cmiOpenCmd = {NULL, &onMenuItemOpenCmdClick, NULL};
+static struct ContextMenuItem cmiExtractHere = {NULL, &onMenuItemExtractHereClick, NULL};
+static struct ContextMenuItem cmiExtractToFolder = {NULL, &onMenuItemExtractToFolderClick, NULL};
 static struct ContextMenuItem cmiNewTxt = {NULL, &onMenuItemNewTxtClick, NULL};
 static struct ContextMenuItem cmiNewBat = {NULL, &onMenuItemNewBatClick, NULL};
 static struct ContextMenuItem cmiNewReg = {NULL, &onMenuItemNewRegClick, NULL};
@@ -516,6 +521,17 @@ static void updateSelectedItems(void) {
         selectedItems[index] = p->items[i].node;
         i = ListView_GetNextItem(p->hwndList, i, LVNI_SELECTED);
     }
+    previewUpdate();
+}
+
+// Public: fill path/type of the first selected item in the active pane.
+// Used by the preview pane. Returns without modifying outputs if nothing selected.
+void cvGetFirstSelected(wchar_t* path, int* type) {
+    if (path) path[0] = L'\0';
+    if (type) *type = -1;
+    if (numSelectedItems < 1 || !selectedItems[0]) return;
+    if (path) getFileNodePath(selectedItems[0], path);
+    if (type) *type = selectedItems[0]->type;
 }
 
 static void addContextMenuItem(HMENU hMenu, int id, struct ContextMenuItem* cmItem, bool separate) {
@@ -746,6 +762,15 @@ static void createContextMenu(enum ContextMenuType type) {
             if (selectedItems[0]->type == TYPE_FILE) {
                 addContextMenuItem(hMenu, id++, &cmiOpen, false);
                 addContextMenuItem(hMenu, id++, &cmiOpenAsAdmin, false);
+                // Archive extraction (7z). Only shown for recognised archive types.
+                {
+                    wchar_t apath[MAX_PATH] = {0};
+                    getFileNodePath(selectedItems[0], apath);
+                    if (isArchiveExt(apath)) {
+                        addContextMenuItem(hMenu, id++, &cmiExtractHere, false);
+                        addContextMenuItem(hMenu, id++, &cmiExtractToFolder, true);
+                    }
+                }
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoost, false);
                 {
                     wchar_t savedLauncher[MAX_PATH] = {0};
@@ -890,7 +915,9 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     // Capacity bar fills the entire size column (Windows Explorer style)
                     double pct = (totalGB > 0) ? usedGB / totalGB : 0;
                     if (pct > 1.0) pct = 1.0;
-                    COLORREF barColor = (pct < 0.7) ? RGB(0,160,0) : (pct < 0.9 ? RGB(230,180,0) : RGB(220,50,50));
+                    // Phone storage is usually >70%; shift thresholds so red only
+                    // means genuinely low (<5% free), yellow = warning.
+                    COLORREF barColor = (pct < 0.8) ? RGB(0,150,0) : (pct < 0.95 ? RGB(220,170,0) : RGB(210,50,50));
                     int barX = sizeX + 2;
                     int barW = w2 - 4;
                     int barY = rc.top + 2;
@@ -908,9 +935,10 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         FillRect(hdc, &fillR, fillBrush);
                         DeleteObject(fillBrush);
                     }
-                    // White text centered on the bar
-                    wchar_t capText[64];
-                    swprintf_s(capText, 64, L"%.1f / %.1f GB", usedGB, totalGB);
+                    // White text centered on the bar: percentage + used/total.
+                    wchar_t capText[80];
+                    swprintf_s(capText, 80, L"%d%%  %.1f/%.1f GB",
+                               (int)(pct * 100), usedGB, totalGB);
                     SetTextColor(hdc, RGB(255,255,255));
                     SetBkMode(hdc, TRANSPARENT);
                     RECT textR = {barX, barY, barX + barW, barY + barH};
@@ -1381,6 +1409,8 @@ void createContentView() {
     cmiProperties.text = lc_str.properties;
     cmiCopyPath.text = lc_str.copy_path;
     cmiOpenCmd.text = lc_str.open_cmd;
+    cmiExtractHere.text = lc_str.extract_here;
+    cmiExtractToFolder.text = lc_str.extract_to_folder;
     cmiNewTxt.text = lc_str.new_txt;
     cmiNewBat.text = lc_str.new_bat;
     cmiNewReg.text = lc_str.new_reg;
@@ -2162,6 +2192,85 @@ static void onMenuItemOpenCmdClick() {
     wcscat_s(params, MAX_PATH + 16, path);
     wcscat_s(params, MAX_PATH + 16, L"\"");
     ShellExecuteW(hwndMain, L"open", L"cmd.exe", params, path, SW_SHOW);
+}
+
+// --- 7z archive extraction --------------------------------------------------------------
+static bool isArchiveExt(const wchar_t* path) {
+    const wchar_t* dot = wcsrchr(path, L'.');
+    if (!dot) return false;
+    const wchar_t* ext = dot + 1;
+    return !_wcsicmp(ext, L"zip") || !_wcsicmp(ext, L"7z") ||
+           !_wcsicmp(ext, L"rar") || !_wcsicmp(ext, L"tar") ||
+           !_wcsicmp(ext, L"gz") || !_wcsicmp(ext, L"bz2") ||
+           !_wcsicmp(ext, L"xz") || !_wcsicmp(ext, L"iso");
+}
+
+static bool find7z(wchar_t* out) {
+    out[0] = L'\0';
+    if (SearchPathW(NULL, L"7z.exe", NULL, MAX_PATH, out, NULL)) return true;
+    static const wchar_t* candidates[] = {
+        L"C:\\Program Files\\7-Zip\\7z.exe",
+        L"C:\\Program Files (x86)\\7-Zip\\7z.exe",
+        NULL
+    };
+    for (int i = 0; candidates[i]; i++) {
+        if (isPathExists(candidates[i])) { wcscpy_s(out, MAX_PATH, candidates[i]); return true; }
+    }
+    return false;
+}
+
+static void run7zExtract(const wchar_t* archive, const wchar_t* outDir) {
+    wchar_t exe7z[MAX_PATH] = {0};
+    if (!find7z(exe7z)) {
+        MessageBoxW(hwndMain, L"7-Zip not found in the container. Install 7z or add it to PATH.",
+                    L"7z", MB_OK | MB_ICONERROR);
+        return;
+    }
+    CreateDirectoryW(outDir, NULL);
+    wchar_t cmdLine[MAX_PATH * 3 + 32];
+    swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" x -y \"%ls\" -o\"%ls\"", exe7z, archive, outDir);
+    STARTUPINFOW si = {0};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = {0};
+    if (CreateProcessW(exe7z, cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        WaitForSingleObject(pi.hProcess, 60000);
+        CloseHandle(pi.hProcess);
+        navigateRefresh();
+    }
+}
+
+static void onMenuItemExtractHereClick() {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    wchar_t archive[MAX_PATH] = {0};
+    getFileNodePath(selectedItems[0], archive);
+    if (!currPathFileNode) return;
+    wchar_t curDir[MAX_PATH] = {0};
+    getFileNodePath(currPathFileNode, curDir);
+    run7zExtract(archive, curDir);
+}
+
+static void onMenuItemExtractToFolderClick() {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    wchar_t archive[MAX_PATH] = {0};
+    getFileNodePath(selectedItems[0], archive);
+    if (!currPathFileNode) return;
+    wchar_t curDir[MAX_PATH] = {0};
+    getFileNodePath(currPathFileNode, curDir);
+    // Output folder = current dir\basename(without extension).
+    const wchar_t* base = wcsrchr(archive, L'\\');
+    base = base ? base + 1 : archive;
+    wchar_t folder[MAX_PATH];
+    wcscpy_s(folder, MAX_PATH, curDir);
+    if (folder[wcslen(folder)-1] != L'\\') wcscat_s(folder, MAX_PATH, L"\\");
+    wchar_t nameNoExt[MAX_PATH] = {0};
+    wcscpy_s(nameNoExt, MAX_PATH, base);
+    wchar_t* dot = wcsrchr(nameNoExt, L'.');
+    if (dot) *dot = L'\0';
+    wcscat_s(folder, MAX_PATH, nameNoExt);
+    run7zExtract(archive, folder);
 }
 
 

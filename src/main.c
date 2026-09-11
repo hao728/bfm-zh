@@ -1,4 +1,6 @@
 #include "main.h"
+#include <olectl.h>   // OleLoadPicturePath for image preview
+#include <ocidl.h>    // IPicture interface
 
 static const wchar_t mainWndClass[] = L"WFM-MainWnd";
 
@@ -12,8 +14,11 @@ extern HWND hwndTreeview;
 HINSTANCE globalHInstance = NULL;
 HWND hwndMain = NULL;
 HWND hwndTabs = NULL;
+HWND hwndPreview = NULL;
+bool previewOn = false;
 struct LC_STR lc_str = {0};
 void resizeControls(void);  // forward: tab visibility changes trigger relayout
+void previewUpdate(void);   // forward: refresh preview pane for current selection
 
 // --- Tab bar ---------------------------------------------------------------------------
 #define MAX_TABS 16
@@ -396,7 +401,11 @@ HFONT getUIFont(void) {
         int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
         ReleaseDC(NULL, screen);
         if (dpiY <= 0) dpiY = 96;
-        int height = -MulDiv(9, dpiY, 72);  // 9pt -> device pixels
+        // 10pt reads sharper than 9pt under Wine's freetype at small sizes;
+        // clamp so a misconfigured high DPI does not blow the font up huge.
+        int height = -MulDiv(10, dpiY, 72);  // 10pt -> device pixels
+        if (height > -11) height = -11;
+        if (height < -18) height = -18;
 
         wchar_t chosen[LF_FACESIZE] = {0};
 
@@ -424,14 +433,17 @@ HFONT getUIFont(void) {
         }
 
         // 3. Build the chosen CJK face; if none, Tahoma (Wine always ships it).
+        // OUT_TT_PRECIS forces the mapper to pick a TrueType face (raster .fon
+        // fonts scale badly); CLEARTYPE_QUALITY gives subpixel rendering on
+        // LCD panels and falls back to grayscale AA where unsupported.
         if (chosen[0])
             uiFont = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                 ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, chosen);
+                                 DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, chosen);
         if (!uiFont && fontFaceUsable(L"Tahoma", false))
             uiFont = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                 ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Tahoma");
+                                 DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Tahoma");
         // 4. Last resort.
         if (!uiFont)
             uiFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
@@ -542,6 +554,12 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_VIEW_SPLIT:
             cvToggleSplit();
             break;
+        case ID_VIEW_PREVIEW:
+            previewOn = !previewOn;
+            if (hViewMenu) CheckMenuItem(hViewMenu, ID_VIEW_PREVIEW, MF_BYCOMMAND | (previewOn ? MF_CHECKED : MF_UNCHECKED));
+            resizeControls();
+            if (previewOn) previewUpdate();
+            break;
         case ID_VIEW_HIDDEN:
             showHiddenFiles = !showHiddenFiles;
             if (hViewMenu) CheckMenuItem(hViewMenu, ID_VIEW_HIDDEN, MF_BYCOMMAND | (showHiddenFiles ? MF_CHECKED : MF_UNCHECKED));
@@ -560,6 +578,185 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_TOOL_TASKMGR: ShellExecuteW(NULL, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOW); break;
         case ID_TOOL_LAUNCHER: onMenuItemLauncherChooseClick(); break;
     }
+}
+
+// --- Preview pane -----------------------------------------------------------------------
+static const wchar_t previewWndClass[] = L"WFM-PreviewPane";
+static wchar_t previewPath[MAX_PATH] = {0};
+static IPicture* previewPic = NULL;
+static HICON previewIcon = NULL;
+static wchar_t previewTypeName[64] = {0};
+static wchar_t previewSizeStr[32] = {0};
+static wchar_t previewDateStr[64] = {0};
+
+static bool isImageExt(const wchar_t* path) {
+    const wchar_t* dot = wcsrchr(path, L'.');
+    if (!dot) return false;
+    const wchar_t* ext = dot + 1;
+    return !_wcsicmp(ext, L"jpg") || !_wcsicmp(ext, L"jpeg") ||
+           !_wcsicmp(ext, L"png") || !_wcsicmp(ext, L"gif") ||
+           !_wcsicmp(ext, L"bmp") || !_wcsicmp(ext, L"ico");
+}
+
+void previewUpdate(void) {
+    if (!previewOn || !hwndPreview) return;
+    // Release previous resources.
+    if (previewPic) { previewPic->lpVtbl->Release(previewPic); previewPic = NULL; }
+    if (previewIcon) { DestroyIcon(previewIcon); previewIcon = NULL; }
+    previewPath[0] = L'\0';
+    previewTypeName[0] = L'\0';
+    previewSizeStr[0] = L'\0';
+    previewDateStr[0] = L'\0';
+
+    wchar_t path[MAX_PATH] = {0};
+    int ftype = -1;
+    cvGetFirstSelected(path, &ftype);
+    if (!path[0]) { InvalidateRect(hwndPreview, NULL, TRUE); return; }
+    wcscpy_s(previewPath, MAX_PATH, path);
+
+    // Large icon for non-images (and fallback).
+    SHFILEINFOW sfi = {0};
+    if (SHGetFileInfoW(path, 0, &sfi, sizeof(sfi),
+                       SHGFI_ICON | SHGFI_LARGEICON | SHGFI_TYPENAME)) {
+        previewIcon = sfi.hIcon;
+        wcscpy_s(previewTypeName, 64, sfi.szTypeName);
+    }
+
+    // File size + date.
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (GetFileAttributesExW(path, GetFileExInfoStandard, &fad)) {
+        ULARGE_INTEGER sz; sz.LowPart = fad.nFileSizeLow; sz.HighPart = fad.nFileSizeHigh;
+        double gb = (double)sz.QuadPart / 1073741824.0;
+        double mb = (double)sz.QuadPart / 1048576.0;
+        double kb = (double)sz.QuadPart / 1024.0;
+        if (gb >= 1.0) swprintf_s(previewSizeStr, 32, L"%.2f GB", gb);
+        else if (mb >= 1.0) swprintf_s(previewSizeStr, 32, L"%.1f MB", mb);
+        else if (kb >= 1.0) swprintf_s(previewSizeStr, 32, L"%.0f KB", kb);
+        else swprintf_s(previewSizeStr, 32, L"%lu bytes", (unsigned long)sz.QuadPart);
+        SYSTEMTIME st, lt;
+        FileTimeToSystemTime(&fad.ftLastWriteTime, &st);
+        SystemTimeToTzSpecificLocalTime(NULL, &st, &lt);
+        swprintf_s(previewDateStr, 64, L"%04d-%02d-%02d %02d:%02d",
+                   lt.wYear, lt.wMonth, lt.wDay, lt.wHour, lt.wMinute);
+    }
+
+    // Load image for image files.
+    if (isImageExt(path)) {
+        BSTR bstrPath = SysAllocString(path);
+        if (bstrPath) {
+            OleLoadPicturePath(bstrPath, NULL, 0, 0, &IID_IPicture, (void**)&previewPic);
+            SysFreeString(bstrPath);
+        }
+    }
+    InvalidateRect(hwndPreview, NULL, TRUE);
+}
+
+static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rc; GetClientRect(hwnd, &rc);
+            // Background.
+            HBRUSH bg = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
+            FillRect(hdc, &rc, bg); DeleteObject(bg);
+
+            int margin = 12;
+            int contentW = rc.right - margin * 2;
+            int y = margin;
+
+            if (!previewPath[0]) {
+                SetTextColor(hdc, GetSysColor(COLOR_GRAYTEXT));
+                HFONT old = (HFONT)SelectObject(hdc, getUIFont());
+                RECT tr = {margin, y, rc.right - margin, y + 40};
+                DrawTextW(hdc, L"Select a file to preview", -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                SelectObject(hdc, old);
+                EndPaint(hwnd, &ps);
+                return 0;
+            }
+
+            // Image or large icon.
+            int mediaH = 120;
+            if (previewPic) {
+                long pw = 0, ph = 0;
+                previewPic->lpVtbl->get_Width(previewPic, &pw);
+                previewPic->lpVtbl->get_Height(previewPic, &ph);
+                if (pw > 0 && ph > 0) {
+                    double scale = (double)contentW / (double)pw;
+                    double scaleH = (double)mediaH / (double)ph;
+                    if (scaleH < scale) scale = scaleH;
+                    int dw = (int)(pw * scale), dh = (int)(ph * scale);
+                    int dx = margin + (contentW - dw) / 2;
+                    int dy = y + (mediaH - dh) / 2;
+                    previewPic->lpVtbl->Render(previewPic, hdc, dx, dy, dw, dh,
+                                               0, ph, pw, -ph, NULL);
+                }
+            } else if (previewIcon) {
+                DrawIconEx(hdc, margin + (contentW - 48) / 2, y + (mediaH - 48) / 2,
+                           previewIcon, 48, 48, 0, NULL, DI_NORMAL);
+            }
+            y += mediaH + margin;
+
+            // File name (bold-ish via larger font).
+            HFONT hName = CreateFontW(-14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, NULL);
+            HFONT old = (HFONT)SelectObject(hdc, hName ? hName : getUIFont());
+            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+            RECT nr = {margin, y, rc.right - margin, y + 40};
+            const wchar_t* name = wcsrchr(previewPath, L'\\');
+            name = name ? name + 1 : previewPath;
+            DrawTextW(hdc, name, -1, &nr, DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
+            SelectObject(hdc, old);
+            if (hName) DeleteObject(hName);
+            y += 44;
+
+            // Separator.
+            HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DFACE));
+            HPEN oldPen = (HPEN)SelectObject(hdc, pen);
+            MoveToEx(hdc, margin, y, NULL); LineTo(hdc, rc.right - margin, y);
+            SelectObject(hdc, oldPen); DeleteObject(pen);
+            y += 10;
+
+            // Metadata rows.
+            HFONT hf = getUIFont();
+            old = (HFONT)SelectObject(hdc, hf);
+            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+            SetBkMode(hdc, TRANSPARENT);
+            wchar_t row[128];
+            int rowH = 20;
+            if (previewTypeName[0]) {
+                swprintf_s(row, 128, L"Type: %ls", previewTypeName);
+                RECT rr = {margin, y, rc.right - margin, y + rowH};
+                DrawTextW(hdc, row, -1, &rr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                y += rowH;
+            }
+            if (previewSizeStr[0]) {
+                swprintf_s(row, 128, L"Size: %ls", previewSizeStr);
+                RECT rr = {margin, y, rc.right - margin, y + rowH};
+                DrawTextW(hdc, row, -1, &rr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                y += rowH;
+            }
+            if (previewDateStr[0]) {
+                swprintf_s(row, 128, L"Modified: %ls", previewDateStr);
+                RECT rr = {margin, y, rc.right - margin, y + rowH};
+                DrawTextW(hdc, row, -1, &rr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                y += rowH;
+            }
+            // Location.
+            swprintf_s(row, 128, L"Location: %ls", previewPath);
+            RECT lr = {margin, y, rc.right - margin, y + rowH * 2};
+            DrawTextW(hdc, row, -1, &lr, DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
+            SelectObject(hdc, old);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_DESTROY:
+            if (previewPic) { previewPic->lpVtbl->Release(previewPic); previewPic = NULL; }
+            if (previewIcon) { DestroyIcon(previewIcon); previewIcon = NULL; }
+            break;
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
 void resizeControls() {
@@ -602,7 +799,8 @@ void resizeControls() {
 
     int contentViewX = treeviewRect.right + sizebarWidth;
     int contentY = contentTop;
-    int contentW = rect.right - contentViewX;
+    const int previewW = previewOn ? 220 : 0;
+    int contentW = rect.right - contentViewX - previewW;
     int contentH = treeviewHeight;
 
     bool split = cvSplitOn();
@@ -631,6 +829,12 @@ void resizeControls() {
         }
         SetWindowPos(cvPaneHwnd(i), NULL, x, y + labelH, w, h - labelH, SWP_NOZORDER);
         cvFitColumns(cvPaneHwnd(i), w);
+    }
+
+    // Preview pane sits to the right of the content area.
+    if (hwndPreview) {
+        SetWindowPos(hwndPreview, NULL, rect.right - previewW, contentTop, previewW, treeviewHeight, SWP_NOZORDER);
+        ShowWindow(hwndPreview, previewOn ? SW_SHOW : SW_HIDE);
     }
 }
 
@@ -840,6 +1044,7 @@ static void createMainMenu() {
     AppendMenu(hmView, MF_STRING, ID_VIEW_DETAILS, lc_str.details);
     AppendMenu(hmView, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmView, MF_STRING, ID_VIEW_SPLIT, lc_str.split_view);
+    AppendMenu(hmView, MF_STRING, ID_VIEW_PREVIEW, lc_str.preview_pane);
     AppendMenu(hmView, MF_STRING, ID_VIEW_HIDDEN, lc_str.show_hidden);
     AppendMenu(hmView, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmView, MF_STRING, ID_VIEW_GAME_MODE, lc_str.game_mode);
@@ -918,7 +1123,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     wcx.hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MAIN));
 
     if (!RegisterClassEx(&wcx)) return 0;
-    
+
+    // Preview pane window class.
+    WNDCLASSEX pwc = {0};
+    pwc.cbSize = sizeof(pwc);
+    pwc.style = CS_HREDRAW | CS_VREDRAW;
+    pwc.lpfnWndProc = &PreviewWndProc;
+    pwc.hInstance = hInstance;
+    pwc.hCursor = LoadCursor(hInstance, IDC_ARROW);
+    pwc.hbrBackground = (HBRUSH)COLOR_WINDOW;
+    pwc.lpszClassName = previewWndClass;
+    RegisterClassEx(&pwc);
+
     initFileNodes();
 
     HWND hwndDesktop = GetDesktopWindow();
@@ -947,6 +1163,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     createSizebar();
     createContentView();
     cvInitPanePaths();
+    // Preview pane (hidden by default; toggled via View > Preview pane).
+    hwndPreview = CreateWindowEx(WS_EX_CLIENTEDGE, previewWndClass, L"",
+        WS_CHILD | WS_CLIPSIBLINGS, 0, 0, 220, 100, hwndMain, NULL, hInstance, NULL);
     createStatusbar();
 
     setViewStyle(STYLE_DETAILS);
