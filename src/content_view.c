@@ -1711,11 +1711,18 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
     launcherBoostMemory();
 
-    bool hasLauncher = (a->launcher[0] != L'\0');
-    wchar_t* app = hasLauncher ? a->launcher : a->target;
+    // Working directory MUST be the target's folder (games load sibling files
+    // relative to their own exe), never the launcher's folder.
+    wchar_t targetDir[MAX_PATH] = {0};
+    getParentDirFromPath(a->target, targetDir);
 
-    wchar_t workDir[MAX_PATH] = {0};
-    getParentDirFromPath(app, workDir);
+    // If a saved launcher no longer exists, ignore it and run the target directly.
+    bool hasLauncher = (a->launcher[0] != L'\0');
+    if (hasLauncher && !isPathExists(a->launcher)) {
+        a->launcher[0] = L'\0';
+        hasLauncher = false;
+    }
+    wchar_t* app = hasLauncher ? a->launcher : a->target;
 
     wchar_t cmdLine[MAX_PATH * 2 + 8] = {0};
     if (hasLauncher)
@@ -1730,7 +1737,7 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     ZeroMemory(&pi, sizeof(pi));
 
     BOOL ok = CreateProcessW(app, cmdLine, NULL, NULL, FALSE, 0, NULL,
-                             workDir[0] ? workDir : NULL, &si, &pi);
+                             targetDir[0] ? targetDir : NULL, &si, &pi);
     if (ok) {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
@@ -1738,7 +1745,7 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     else {
         // Fallback for non-PE targets / association-based open.
         ShellExecuteW(hwndMain, L"open", a->target, NULL,
-                      workDir[0] ? workDir : NULL, SW_SHOW);
+                      targetDir[0] ? targetDir : NULL, SW_SHOW);
     }
     free(a);
     return 0;
@@ -1757,6 +1764,26 @@ void onMenuItemLauncherBoostClick(void) {
 
 // Context menu entry: pick an external launcher exe (e.g. RamBooster) and remember it.
 void onMenuItemLauncherChooseClick(void) {
+    // If a launcher is already configured, let the user replace it or clear it.
+    // A stale launcher pointing at another exe is what made "Boost & Run" open
+    // the wrong program, so clearing must be possible without editing registry.
+    wchar_t saved[MAX_PATH] = {0};
+    if (launcherGetSaved(saved)) {
+        wchar_t msg[MAX_PATH + 128];
+        swprintf_s(msg, _countof(msg), L"%ls\n\n%ls",
+                   lc_str.launcher_exists, saved);
+        if (MessageBoxW(hwndMain, msg, lc_str.launcher_choose,
+                        MB_OKCANCEL | MB_ICONQUESTION) != IDOK) {
+            HKEY hk;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0,
+                              KEY_WRITE, &hk) == ERROR_SUCCESS) {
+                RegDeleteValueW(hk, L"LauncherPath");
+                RegCloseKey(hk);
+            }
+            return;  // cleared
+        }
+    }
+
     OPENFILENAMEW ofn;
     ZeroMemory(&ofn, sizeof(ofn));
     wchar_t exePath[MAX_PATH] = {0};

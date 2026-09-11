@@ -13,6 +13,7 @@ HINSTANCE globalHInstance = NULL;
 HWND hwndMain = NULL;
 HWND hwndTabs = NULL;
 struct LC_STR lc_str = {0};
+void resizeControls(void);  // forward: tab visibility changes trigger relayout
 
 // --- Tab bar ---------------------------------------------------------------------------
 #define MAX_TABS 16
@@ -38,6 +39,13 @@ static void tabsRestore(int idx) {
     }
 }
 
+// Hide the tab strip when only one tab is open (it is redundant clutter);
+// show it again once a second tab is created.
+static void tabsUpdateVisibility(void) {
+    if (!hwndTabs) return;
+    ShowWindow(hwndTabs, tabCount > 1 ? SW_SHOW : SW_HIDE);
+}
+
 static void tabsAdd(const wchar_t* path) {
     if (tabCount >= MAX_TABS) return;
     if (path) wcscpy_s(tabStates[tabCount].path, MAX_PATH, path);
@@ -57,6 +65,7 @@ static void tabsAdd(const wchar_t* path) {
     tabCount++;
     TabCtrl_SetCurSel(hwndTabs, tabCount - 1);
     activeTab = tabCount - 1;
+    tabsUpdateVisibility();
 }
 
 static void tabsClose(int idx) {
@@ -69,6 +78,7 @@ static void tabsClose(int idx) {
     tabCount--;
     if (activeTab >= tabCount) activeTab = tabCount - 1;
     TabCtrl_SetCurSel(hwndTabs, activeTab);
+    tabsUpdateVisibility();
     tabsRestore(activeTab);
 }
 
@@ -104,6 +114,7 @@ void tabNew(void) {
     if (currPathFileNode) getFileNodePath(currPathFileNode, cur);
     tabsAdd(cur[0] ? cur : NULL);
     if (cur[0]) navigateToPath(cur);
+    resizeControls();
 }
 
 void tabCloseActive(void) {
@@ -111,6 +122,7 @@ void tabCloseActive(void) {
     int sel = TabCtrl_GetCurSel(hwndTabs);
     if (sel < 0) sel = activeTab;
     tabsClose(sel);
+    resizeControls();
 }
 
 // --- Dual-pane layout ------------------------------------------------------------------
@@ -330,57 +342,97 @@ bool themeScrollbarsNeedRepaint(UINT msg) {
     }
 }
 
-// Try to create a font and verify the face name actually matches (CreateFontW
-// never returns NULL on a missing face — it silently substitutes, so we must
-// check GetTextFace to know whether the requested font really exists).
-static HFONT tryCreateFont(const wchar_t* face, int height) {
-    HFONT hf = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+// CreateFontW never returns NULL on a missing face — it silently substitutes —
+// so a requested name is not proof the face exists. We verify two things:
+//   (a) GetTextFace reports the same name we asked for;
+//   (b) the face actually carries a glyph for a common CJK char (U+6587 文),
+//       which is the real test of whether Chinese will render instead of boxes.
+static bool fontFaceUsable(const wchar_t* face, bool requireCJK) {
+    HFONT hf = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                           ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, face);
-    if (!hf) return NULL;
+                           DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, face);
+    if (!hf) return false;
     HDC hdc = GetDC(NULL);
     HFONT old = (HFONT)SelectObject(hdc, hf);
     wchar_t actual[LF_FACESIZE] = {0};
     GetTextFaceW(hdc, LF_FACESIZE, actual);
+    bool nameOk = (_wcsicmp(actual, face) == 0);
+    bool cjkOk = true;
+    if (requireCJK) {
+        WORD gi = 0;
+        wchar_t probe = 0x6587;  // 文
+        cjkOk = (GetGlyphIndicesW(hdc, &probe, 1, &gi, GGI_MARK_NONEXISTING_GLYPHS) != GDI_ERROR)
+                && gi != 0 && gi != 0xFFFF;
+    }
     SelectObject(hdc, old);
     ReleaseDC(NULL, hdc);
-    if (_wcsicmp(actual, face) != 0) {
-        DeleteObject(hf);
-        return NULL;
-    }
-    return hf;
+    DeleteObject(hf);
+    return nameOk && cjkOk;
 }
 
-// Shared UI font. Strategy:
-//   1. SystemParametersInfo(SPI_GETNONCLIENTMETRICS) — the font Wine actually
-//      configured for menus/dialogs. Most reliable; no face-name guessing.
-//   2. Probe known CJK-capable faces with GetTextFace verification (CreateFontW
-//      silently substitutes on missing faces, so we must check the real name).
-//   3. DEFAULT_GUI_FONT last resort.
+// EnumFontFamiliesEx callback: record the first installed TrueType face that
+// can render CJK. This discovers whatever the container actually ships
+// (Droid Sans Fallback, Source Han, etc.) without us guessing its name.
+static wchar_t g_enumCJKFace[LF_FACESIZE] = {0};
+static INT CALLBACK enumCJKFontProc(const LOGFONTW* lf, const TEXTMETRICW* tm,
+                                    DWORD fontType, LPARAM lParam) {
+    (void)tm; (void)lParam;
+    if (!(fontType & TRUETYPE_FONTTYPE)) return 1;  // skip raster/device fonts
+    if (g_enumCJKFace[0]) return 0;                 // already found
+    if (fontFaceUsable(lf->lfFaceName, true))
+        wcscpy_s(g_enumCJKFace, LF_FACESIZE, lf->lfFaceName);
+    return g_enumCJKFace[0] ? 0 : 1;
+}
+
+// Shared UI font. We do NOT trust SystemParametersInfo (its lfMessageFont is a
+// logical name like "MS Shell Dlg" that Wine substitutes anyway). Instead we
+// pick a real, installed, CJK-capable TrueType face: first a preferred name,
+// then whatever the system enumerates. DPI-aware height keeps it sharp on
+// high-density phone panels.
 static HFONT uiFont = NULL;
 HFONT getUIFont(void) {
     if (!uiFont) {
-        // 1. System message font (Wine's configured font).
-        NONCLIENTMETRICSW ncm = {0};
-        ncm.cbSize = sizeof(ncm);
-        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0)) {
-            ncm.lfMessageFont.lfQuality = ANTIALIASED_QUALITY;
-            if (ncm.lfMessageFont.lfHeight == 0)
-                ncm.lfMessageFont.lfHeight = -12;
-            uiFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        HDC screen = GetDC(NULL);
+        int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
+        ReleaseDC(NULL, screen);
+        if (dpiY <= 0) dpiY = 96;
+        int height = -MulDiv(9, dpiY, 72);  // 9pt -> device pixels
+
+        wchar_t chosen[LF_FACESIZE] = {0};
+
+        // 1. Preferred faces, verified to exist AND carry CJK glyphs.
+        static const wchar_t* preferred[] = {
+            L"Microsoft YaHei", L"微软雅黑", L"Noto Sans CJK SC",
+            L"Source Han Sans SC", L"WenQuanYi Micro Hei",
+            L"Droid Sans Fallback", NULL
+        };
+        for (int i = 0; preferred[i] && !chosen[0]; i++) {
+            if (fontFaceUsable(preferred[i], true))
+                wcscpy_s(chosen, LF_FACESIZE, preferred[i]);
         }
-        // 2. Probe faces with verification.
-        if (!uiFont) {
-            static const wchar_t* faces[] = {
-                L"Microsoft YaHei", L"微软雅黑", L"Noto Sans CJK SC",
-                L"WenQuanYi Micro Hei", L"Tahoma", L"Segoe UI", NULL
-            };
-            for (int i = 0; faces[i]; i++) {
-                uiFont = tryCreateFont(faces[i], -12);
-                if (uiFont) break;
-            }
+
+        // 2. Enumerate every installed face and take the first CJK-capable one.
+        if (!chosen[0]) {
+            LOGFONTW lf = {0};
+            lf.lfCharSet = DEFAULT_CHARSET;
+            wcscpy_s(lf.lfFaceName, LF_FACESIZE, L"");
+            HDC hdc = GetDC(NULL);
+            EnumFontFamiliesExW(hdc, &lf, enumCJKFontProc, 0, 0);
+            ReleaseDC(NULL, hdc);
+            if (g_enumCJKFace[0])
+                wcscpy_s(chosen, LF_FACESIZE, g_enumCJKFace);
         }
-        // 3. Last resort.
+
+        // 3. Build the chosen CJK face; if none, Tahoma (Wine always ships it).
+        if (chosen[0])
+            uiFont = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, chosen);
+        if (!uiFont && fontFaceUsable(L"Tahoma", false))
+            uiFont = CreateFontW(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Tahoma");
+        // 4. Last resort.
         if (!uiFont)
             uiFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     }
@@ -529,10 +581,10 @@ void resizeControls() {
     SetWindowPos(hwndNavbar, NULL, 0, toolbarRect.bottom, rect.right, navbarHeight, SWP_NOZORDER);
     GetWindowRectInParent(hwndNavbar, &navbarRect);
 
-    // Tab bar sits below navbar. Guard against NULL: resizeControls can be
-    // entered during early control creation before the tab bar exists.
+    // Tab bar sits below navbar, but only when it is visible (2+ tabs). With a
+    // single tab it is hidden and consumes no vertical space.
     int contentTop = navbarRect.bottom;
-    if (hwndTabs) {
+    if (hwndTabs && IsWindowVisible(hwndTabs)) {
         int tabsHeight = 24;
         SetWindowPos(hwndTabs, NULL, 0, navbarRect.bottom, rect.right, tabsHeight, SWP_NOZORDER);
         RECT tabsRect;
@@ -889,8 +941,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         WS_CHILD | WS_CLIPSIBLINGS | TCS_FIXEDWIDTH | TCS_TOOLTIPS,
         0, 0, 200, 24, hwndMain, NULL, hInstance, NULL);
     TabCtrl_SetItemSize(hwndTabs, 120, 22);
-    ShowWindow(hwndTabs, SW_SHOW);
-    tabsAdd(NULL);  // initial tab
+    tabsAdd(NULL);  // initial tab; strip stays hidden until a second tab opens
 
     createTreeview();
     createSizebar();
