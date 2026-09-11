@@ -134,6 +134,7 @@ static inline void loadStrings_pt() {
     lc_str.launcher_boost = L"Acelerar e Executar (liberar RAM)";
     lc_str.launcher_choose = L"Definir iniciador externo\u2026";
     lc_str.launcher_exists = L"Um iniciador externo ja esta definido.\nOK = escolher outro, Cancelar = limpar";
+    lc_str.launcher_run_with = L"Executar com iniciador externo";
     lc_str.diff_files = L"Comparar arquivos";
 }
 

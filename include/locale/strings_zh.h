@@ -132,6 +132,7 @@ static inline void loadStrings_zh() {
     lc_str.launcher_boost = L"\u52a0\u901f\u8fd0\u884c\uff08\u6e05\u5185\u5b58\uff09";
     lc_str.launcher_choose = L"\u8bbe\u7f6e\u5916\u90e8\u542f\u52a8\u5668\u2026";
     lc_str.launcher_exists = L"\u5f53\u524d\u5916\u90e8\u542f\u52a8\u5668\uff1a\u786e\u5b9a=\u66f4\u6362\uff0c\u53d6\u6d88=\u6e05\u9664\u8be5\u8bbe\u7f6e";
+    lc_str.launcher_run_with = L"\u7528\u5916\u90e8\u542f\u52a8\u5668\u8fd0\u884c";
     lc_str.diff_files = L"\u6bd4\u8f83\u6587\u4ef6";
 }
 
