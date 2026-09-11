@@ -133,6 +133,7 @@ static inline void loadStrings_en() {
     lc_str.tool_taskmgr = L"Task Manager";
     lc_str.launcher_boost = L"Boost & Run (free RAM)";
     lc_str.launcher_choose = L"Set external launcher\u2026";
+    lc_str.launcher_exists = L"An external launcher is already set.\nOK = choose a new one, Cancel = clear it";
     lc_str.diff_files = L"Compare files";
 }
 
