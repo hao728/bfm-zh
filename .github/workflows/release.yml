@@ -32,7 +32,7 @@ jobs:
             $CC $CFLAGS $INCLUDES -c "src/$f.c" -o "obj/$f.o"
           done
           $RC $INCLUDES -I./res -i res/resource.rc -o obj/resource.o
-          $CC -o wfm.exe obj/*.o -s -lcomctl32 -lgdi32 -lole32 -luuid -luxtheme -lshlwapi ./libcdio.dll -Wl,--subsystem,windows
+          $CC -o wfm.exe obj/*.o -s -lcomctl32 -lgdi32 -lole32 -loleaut32 -luuid -luxtheme -lshlwapi -lcrypt32 ./libcdio.dll -Wl,--subsystem,windows
           file wfm.exe
 
       - name: Package release zip
