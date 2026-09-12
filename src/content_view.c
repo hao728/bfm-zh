@@ -954,44 +954,50 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         usedGB = (double)(tb.QuadPart - fb.QuadPart) / 1073741824.0;
                         totalGB = (double)tb.QuadPart / 1073741824.0;
                     }
-                    // Capacity bar fills the entire size column (Windows Explorer style)
+                    // Windows-Explorer-style capacity meter: blue while healthy,
+                    // red only when free space is genuinely low (<10%).
                     double pct = (totalGB > 0) ? usedGB / totalGB : 0;
                     if (pct > 1.0) pct = 1.0;
-                    // Phone storage is usually >70%; shift thresholds so red only
-                    // means genuinely low (<5% free), yellow = warning.
-                    COLORREF barColor = (pct < 0.8) ? RGB(0,150,0) : (pct < 0.95 ? RGB(220,170,0) : RGB(210,50,50));
-                    // Capacity bar: bar fills left 50% of the (150px) size
-                    // column, full "used/total GB" text in the right 50%.
-                    int barX = sizeX + 2;
-                    int barW = (w2 - 4) * 50 / 100;
-                    int barY = rc.top + 3;
-                    int barH = rowH - 6;
-                    // Track (light gray background)
-                    HBRUSH trackBrush = CreateSolidBrush(GetSysColor(COLOR_3DFACE));
+                    COLORREF barColor = (pct < 0.90) ? RGB(0,120,215) : RGB(210,50,50);
+                    // Bar occupies ~42% of the size column; the rest holds text.
+                    int barX = sizeX + 4;
+                    int barW = (w2 - 8) * 42 / 100;
+                    if (barW < 46) barW = 46;
+                    int barY = rc.top + (rowH - 12) / 2;
+                    int barH = 12;
+                    // Track (inset groove) + 1px border.
                     RECT trackR = {barX, barY, barX + barW, barY + barH};
+                    HBRUSH trackBrush = CreateSolidBrush(GetSysColor(COLOR_3DFACE));
                     FillRect(hdc, &trackR, trackBrush);
                     DeleteObject(trackBrush);
-                    // Filled portion
-                    int fillW = (int)(barW * pct);
+                    HPEN borderPen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DSHADOW));
+                    HGDIOBJ oldPen = SelectObject(hdc, borderPen);
+                    HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+                    Rectangle(hdc, barX, barY, barX + barW, barY + barH);
+                    SelectObject(hdc, oldBrush);
+                    SelectObject(hdc, oldPen);
+                    DeleteObject(borderPen);
+                    // Filled portion (inside the 1px border).
+                    int fillW = (int)((barW - 2) * pct);
                     if (fillW > 0) {
                         HBRUSH fillBrush = CreateSolidBrush(barColor);
-                        RECT fillR = {barX, barY, barX + fillW, barY + barH};
+                        RECT fillR = {barX + 1, barY + 1, barX + 1 + fillW, barY + barH - 1};
                         FillRect(hdc, &fillR, fillBrush);
                         DeleteObject(fillBrush);
                     }
-                    // Percentage on the bar
+                    // Percentage on the bar (white).
                     wchar_t pctText[16];
                     swprintf_s(pctText, 16, L"%d%%", (int)(pct * 100));
                     SetTextColor(hdc, RGB(255,255,255));
                     SetBkMode(hdc, TRANSPARENT);
-                    RECT pctR = {barX, barY, barX + barW, barY + barH};
+                    RECT pctR = {barX + 1, barY + 1, barX + barW - 1, barY + barH - 1};
                     DrawTextW(hdc, pctText, -1, &pctR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                     // Full used/total GB to the right of the bar.
-                    wchar_t capText[32];
-                    swprintf_s(capText, 32, L"%.0f/%.0f GB", usedGB, totalGB);
-                    SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
-                    RECT textR = {barX + barW + 4, rc.top, sizeX + w2 - 2, rc.bottom};
-                    DrawTextW(hdc, capText, -1, &textR, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                    wchar_t capText[40];
+                    swprintf_s(capText, 40, L"%.1f / %.0f GB", usedGB, totalGB);
+                    SetTextColor(hdc, textColor);
+                    RECT textR = {barX + barW + 6, rc.top, sizeX + w2 - 2, rc.bottom};
+                    DrawTextW(hdc, capText, -1, &textR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 } else if (item->node->type == TYPE_FILE) {
                     RECT sizeR = {sizeX + 4, rc.top, sizeX + w2 - 4, rc.bottom};
                     DrawTextW(hdc, item->formattedSize, -1, &sizeR, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
@@ -1106,7 +1112,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                             if (GetDiskFreeSpaceExW(dp, &fb, &tb, &tf) && tb.QuadPart > 0) {
                                 double usedGB = (double)(tb.QuadPart - fb.QuadPart) / 1073741824.0;
                                 double totalGB = (double)tb.QuadPart / 1073741824.0;
-                                swprintf_s(driveLabel, 48, L"%ls  %.0f/%.0fG", item->node->name, usedGB, totalGB);
+                                swprintf_s(driveLabel, 48, L"%ls  %.1f/%.0f GB", item->node->name, usedGB, totalGB);
                             } else {
                                 swprintf_s(driveLabel, 48, L"%ls", item->node->name);
                             }
@@ -1131,7 +1137,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                             if (GetDiskFreeSpaceExW(dp, &fb, &tb, &tf)) {
                                 double usedGB = (double)(tb.QuadPart - fb.QuadPart) / 1073741824.0;
                                 double totalGB = (double)tb.QuadPart / 1073741824.0;
-                                swprintf_s(capStr, 32, L"%.1fG/%.0fG", usedGB, totalGB);
+                                swprintf_s(capStr, 32, L"%.1f/%.0f GB", usedGB, totalGB);
                             } else {
                                 capStr[0] = L'\0';
                             }
@@ -1161,6 +1167,19 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
             cvSetActiveByHwnd(nmhdr->hwndFrom);
 
             if (nmia->iItem != -1 && nmia->iSubItem == 0) {
+                // Explorer behaviour: right-clicking an item that is NOT part of
+                // the current selection moves the selection to the hit item
+                // first. Without this, updateSelectedItems() kept the previous
+                // selection, so "boost run" on file B could launch the previously
+                // selected program A. Right-clicking inside an existing multi
+                // selection preserves that selection.
+                UINT hitState = ListView_GetItemState(nmhdr->hwndFrom, nmia->iItem, LVIS_SELECTED);
+                if (!(hitState & LVIS_SELECTED)) {
+                    ListView_SetItemState(nmhdr->hwndFrom, -1, 0, LVIS_SELECTED);
+                    ListView_SetItemState(nmhdr->hwndFrom, nmia->iItem,
+                                          LVIS_SELECTED | LVIS_FOCUSED,
+                                          LVIS_SELECTED | LVIS_FOCUSED);
+                }
                 updateSelectedItems();
 
                 bool show = true;
@@ -1405,7 +1424,7 @@ static LRESULT CALLBACK HeaderWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 // Fit columns to the pane so the four columns never overflow (no horizontal scrollbar):
 // the Name column absorbs the leftover width.
 void cvFitColumns(HWND list, int totalWidth) {
-    int typeW = 75, sizeW = 170, dateW = 120;
+    int typeW = 96, sizeW = 196, dateW = 120;
     int other = typeW + sizeW + dateW;
     int nameW = totalWidth - other - GetSystemMetrics(SM_CXVSCROLL) - 6;
     if (nameW < 90) nameW = 90;
@@ -1844,6 +1863,40 @@ struct LauncherArg {
     int deskW, deskH;        // virtual desktop resolution (ignored unless useWineDesktop)
 };
 
+// After the game starts, shrink ITS working set (not just wfm's). Pre-launch
+// memory pressure only reclaims other Android apps; EmptyWorkingSet on the game
+// handle is what actually lowers the game's resident size shown by a task
+// monitor. It trims discardable pages, so we run it only twice during startup
+// (not continuously, which would cause reload stutter). Resolved dynamically so
+// no extra -lpsapi link flag is needed.
+struct GameTrimArg { HANDLE hProc; int aggressive; };
+static DWORD WINAPI gameTrimThread(LPVOID param) {
+    struct GameTrimArg* t = (struct GameTrimArg*)param;
+    if (!t || !t->hProc) { free(t); return 0; }
+    typedef BOOL (WINAPI *EmptyWS_t)(HANDLE);
+    static EmptyWS_t pEmpty = NULL;
+    static bool resolved = false;
+    if (!resolved) {
+        HMODULE k32 = GetModuleHandleW(L"kernel32.dll");
+        if (k32) pEmpty = (EmptyWS_t)(void*)GetProcAddress(k32, "K32EmptyWorkingSet");
+        resolved = true;
+    }
+    static const int balancedPass[2] = { 5000, 15000 };
+    static const int aggressivePass[4] = { 3000, 8000, 16000, 30000 };
+    const int* delays = t->aggressive ? aggressivePass : balancedPass;
+    int passes = t->aggressive ? 4 : 2;
+    for (int k = 0; k < passes; k++) {
+        Sleep(delays[k]);
+        if (WaitForSingleObject(t->hProc, 0) == WAIT_OBJECT_0) break;  // game exited
+        // Best-effort: minimize working set, then empty it.
+        SetProcessWorkingSetSize(t->hProc, (SIZE_T)-1, (SIZE_T)-1);
+        if (pEmpty) pEmpty(t->hProc);
+    }
+    CloseHandle(t->hProc);
+    free(t);
+    return 0;
+}
+
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
     if (a->boostMode >= 0) {
@@ -1896,7 +1949,23 @@ static DWORD WINAPI launcherThread(LPVOID param) {
                              targetDir[0] ? targetDir : NULL, &si, &pi);
     if (ok) {
         CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+        // Boost launches also trim the GAME's own working set after startup
+        // (balanced twice, aggressive four times). Plain/argument launches are
+        // left untouched. Ownership of hProcess moves to the trim thread.
+        if (a->boostMode >= 0) {
+            struct GameTrimArg* t = (struct GameTrimArg*)malloc(sizeof(*t));
+            if (t) {
+                t->hProc = pi.hProcess;
+                t->aggressive = (a->boostMode == 1);
+                HANDLE ht = CreateThread(NULL, 0, gameTrimThread, t, 0, NULL);
+                if (ht) CloseHandle(ht);
+                else { CloseHandle(pi.hProcess); free(t); }
+            } else {
+                CloseHandle(pi.hProcess);
+            }
+        } else {
+            CloseHandle(pi.hProcess);
+        }
     }
     else {
         // Fallback for non-PE targets / association-based open.
@@ -1959,19 +2028,41 @@ void onMenuItemRunNoDebugClick(void) { launchWithArgs(L"-force-opengl"); }
 // ============================================================================
 enum EngineKind { ENGINE_UNKNOWN = 0, ENGINE_UNITY = 1, ENGINE_UNREAL = 2 };
 
+// Many shipped games keep engine markers in SIBLING files rather than inside a
+// small launcher exe (UnityPlayer.dll / GameAssembly.dll sit next to the exe;
+// Unreal ships an Engine\\Binaries tree). Check those first so a tiny exe does
+// not get misclassified as "unknown" and lose its proper launch flags.
+static enum EngineKind detectEngineBySiblings(const wchar_t* exePath) {
+    wchar_t dir[MAX_PATH] = {0};
+    getParentDirFromPath(exePath, dir);
+    if (!dir[0]) return ENGINE_UNKNOWN;
+    wchar_t probe[MAX_PATH * 2];
+    // Unity: Mono build ships UnityPlayer.dll; IL2CPP build ships GameAssembly.dll
+    // plus a "<Game>_Data" folder. Any one is conclusive.
+    swprintf_s(probe, _countof(probe), L"%ls\\UnityPlayer.dll", dir);
+    if (isPathExists(probe)) return ENGINE_UNITY;
+    swprintf_s(probe, _countof(probe), L"%ls\\GameAssembly.dll", dir);
+    if (isPathExists(probe)) return ENGINE_UNITY;
+    // Unreal: packaged builds contain an Engine\\Binaries tree beside the exe.
+    swprintf_s(probe, _countof(probe), L"%ls\\Engine\\Binaries", dir);
+    if (isPathExists(probe)) return ENGINE_UNREAL;
+    return ENGINE_UNKNOWN;
+}
+
 // Scan the first 16 MiB of the executable for engine marker strings, both as
 // plain ASCII and UTF-16LE (PE string tables often store wide strings).
 // Buffer is heap-allocated: a 1 MiB read chunk keeps the working set small and
 // avoids 4 MiB on the 1 MiB default thread stack (which crashed before).
 static enum EngineKind detectGameEngine(const wchar_t* path) {
+    enum EngineKind sib = detectEngineBySiblings(path);
     HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) return ENGINE_UNKNOWN;
+    if (hFile == INVALID_HANDLE_VALUE) return sib;
     BYTE* buf = (BYTE*)malloc(1 * 1024 * 1024);
-    if (!buf) { CloseHandle(hFile); return ENGINE_UNKNOWN; }
+    if (!buf) { CloseHandle(hFile); return sib; }
     DWORD rd;
     ULONGLONG total = 0;
-    int flags = 0;
+    int flags = (sib == ENGINE_UNITY) ? 1 : (sib == ENGINE_UNREAL) ? 2 : 0;
     while (ReadFile(hFile, buf, 1 * 1024 * 1024, &rd, NULL) && rd > 0) {
         total += rd;
         DWORD i;
@@ -2071,7 +2162,7 @@ void onMenuItemRunAdaptiveFClick(void) { launchAdaptive(true); }
 void onMenuItemRunCustomClick(void) {
     if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
     wchar_t* input = InputDialog(lc_str.arg_custom,
-        L"输入命令行参数（如 -screen-width 1920 -screen-height 1080）", L"", false);
+        lc_str.res_hint, L"", false);
     if (input && input[0]) {
         launchWithArgs(input);
         free(input);
@@ -2086,7 +2177,7 @@ static void copyFileHash(const wchar_t* path, ALG_ID algId, const wchar_t* algNa
     HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
-        MessageBoxW(hwndMain, L"无法打开文件", algName, MB_OK | MB_ICONERROR);
+        MessageBoxW(hwndMain, lc_str.err_open_file, algName, MB_OK | MB_ICONERROR);
         return;
     }
     HCRYPTPROV hProv = 0;
@@ -2129,7 +2220,7 @@ static void copyFileHash(const wchar_t* path, ALG_ID algId, const wchar_t* algNa
         CloseClipboard();
     }
     wchar_t msg[300];
-    swprintf_s(msg, 300, L"%ls 已复制到剪贴板：\n\n%ls", algName, hex);
+    swprintf_s(msg, 300, lc_str.hash_copied_fmt, algName, hex);
     MessageBoxW(hwndMain, msg, lc_str.copy_hash, MB_OK | MB_ICONINFORMATION);
 }
 
@@ -2179,11 +2270,11 @@ void onMenuItemProcessManagerClick(void) {
     CreateWindowExW(0, L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
         10, 10, 390, 290, hwnd, (HMENU)1001, globalHInstance, NULL);
     // Buttons
-    CreateWindowExW(0, L"BUTTON", L"结束进程", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+    CreateWindowExW(0, L"BUTTON", lc_str.proc_kill, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         10, 310, 100, 30, hwnd, (HMENU)1002, globalHInstance, NULL);
-    CreateWindowExW(0, L"BUTTON", L"刷新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+    CreateWindowExW(0, L"BUTTON", lc_str.proc_refresh, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         120, 310, 80, 30, hwnd, (HMENU)1003, globalHInstance, NULL);
-    CreateWindowExW(0, L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+    CreateWindowExW(0, L"BUTTON", lc_str.proc_close, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         300, 310, 100, 30, hwnd, (HMENU)IDOK, globalHInstance, NULL);
 
     hProcDlg = hwnd;
@@ -2388,7 +2479,7 @@ void onMenuItemNewFileClick() {
     }
 }
 
-static void onMenuItemNewTxtClick() { createFileWithExt(L"New Text Document.txt", NULL); }
+static void onMenuItemNewTxtClick() { createFileWithExt(lc_str.new_txt_name, NULL); }
 static void onMenuItemNewBatClick() { createFileWithExt(L"New Script.bat", L"@echo off\r\n"); }
 static void onMenuItemNewRegClick() { createFileWithExt(L"New Registry Entry.reg", L"Windows Registry Editor Version 5.00\r\n\r\n"); }
 
@@ -2427,7 +2518,7 @@ void onMenuItemLoadISOImageClick() {
     // X: must be a real CD-ROM drive configured in winecfg (Path: ../drive_x, Type: cdrom).
     // Virtual directory mapping cannot be recognized as an optical drive by games.
     if (GetFileAttributesW(L"X:\\") == INVALID_FILE_ATTRIBUTES) {
-        MessageBox(NULL, L"X: drive not found. Please add it in winecfg: Drives tab -> Add -> X: -> Path: ../drive_x -> Type: CD-ROM", lc_str.alert, MB_OK | MB_ICONWARNING);
+        MessageBoxW(hwndMain, lc_str.x_drive_missing, lc_str.alert, MB_OK | MB_ICONWARNING);
         return;
     }
     clearDirectory(L"X:");
@@ -2652,8 +2743,7 @@ static DWORD WINAPI extractThreadProc(LPVOID param) {
 static void run7zExtract(const wchar_t* archive, const wchar_t* outDir) {
     wchar_t exe7z[MAX_PATH] = {0};
     if (!find7z(exe7z)) {
-        MessageBoxW(hwndMain, L"7-Zip not found in the container. Install 7z or add it to PATH.",
-                    L"7z", MB_OK | MB_ICONERROR);
+        MessageBoxW(hwndMain, lc_str.err_7z_missing, L"7z", MB_OK | MB_ICONERROR);
         return;
     }
     struct ExtractArg* arg = (struct ExtractArg*)malloc(sizeof(struct ExtractArg));
@@ -3231,15 +3321,63 @@ void recentMenu(void) {
 }
 
 // ---------- Extract icon to BMP ----------
+// PrivateExtractIcons pulls the closest embedded icon at a requested size
+// (up to 256px), far sharper than SHGetFileInfo's fixed 32px large icon.
+// The symbol lives in user32; declare with dllimport to match the mingw
+// headers' own declaration (a plain redeclaration triggers -Wattributes).
+__declspec(dllimport) UINT WINAPI PrivateExtractIconsW(LPCWSTR, int, int, int, HICON*, UINT*, UINT, UINT);
+
+// Return the sharpest available icon for a file plus its real pixel size.
+// Falls back to the shell-associated icon for files without embedded icons.
+static HICON getBestFileIcon(const wchar_t* path, int* outW, int* outH) {
+    HICON hIcon = NULL;
+    static const int want[2] = { 256, 48 };
+    for (int k = 0; k < 2 && !hIcon; k++) {
+        HICON cand = NULL;
+        UINT got = PrivateExtractIconsW(path, 0, want[k], want[k], &cand, NULL, 1, 0);
+        // 0 / 0xFFFFFFFF means no embedded icon at that size.
+        if (got != 0 && got != 0xFFFFFFFFu && cand) hIcon = cand;
+        else if (cand) DestroyIcon(cand);
+    }
+    bool fromShell = false;
+    if (!hIcon) {
+        SHFILEINFOW sfi = {0};
+        if (SHGetFileInfoW(path, 0, &sfi, sizeof(sfi),
+                           SHGFI_ICON | SHGFI_LARGEICON) && sfi.hIcon) {
+            hIcon = sfi.hIcon;
+            fromShell = true;
+        }
+    }
+    int w = 32, h = 32;
+    if (hIcon) {
+        ICONINFO ii = {0};
+        if (GetIconInfo(hIcon, &ii)) {
+            BITMAP bm = {0};
+            GetObject(ii.hbmColor ? ii.hbmColor : ii.hbmMask, sizeof(bm), &bm);
+            if (bm.bmWidth > 0) w = bm.bmWidth;
+            if (bm.bmHeight > 0) {
+                h = bm.bmHeight;
+                // A mask-only icon stores AND + XOR masks stacked, so height doubles.
+                if (!ii.hbmColor) h /= 2;
+            }
+            if (ii.hbmMask) DeleteObject(ii.hbmMask);
+            if (ii.hbmColor) DeleteObject(ii.hbmColor);
+        }
+    }
+    (void)fromShell;
+    if (w <= 0) w = 32;
+    if (h <= 0) h = 32;
+    *outW = w; *outH = h;
+    return hIcon;
+}
+
 static void onMenuItemExtractIconClick(void) {
     updateSelectedItems();
     if(numSelectedItems!=1)return;
     wchar_t srcPath[MAX_PATH]={0}; getFileNodePath(selectedItems[0],srcPath);
-    SHFILEINFOW sfi={0};
-    if(!SHGetFileInfoW(srcPath,0,&sfi,sizeof(sfi),SHGFI_ICON|SHGFI_LARGEICON)||!sfi.hIcon)return;
-    ICONINFO ii={0}; GetIconInfo(sfi.hIcon,&ii);
-    BITMAP bm={0}; GetObject(ii.hbmColor?ii.hbmColor:ii.hbmMask,sizeof(bm),&bm);
-    int w=bm.bmWidth,h=bm.bmHeight;
+    int w=32,h=32;
+    HICON hIcon = getBestFileIcon(srcPath,&w,&h);
+    if(!hIcon)return;
     HDC hdc=GetDC(NULL);
     HDC memDC=CreateCompatibleDC(hdc);
     BITMAPINFO bi={0}; bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
@@ -3248,11 +3386,16 @@ static void onMenuItemExtractIconClick(void) {
     void* bits=NULL;
     HBITMAP hDib=CreateDIBSection(hdc,&bi,DIB_RGB_COLORS,&bits,NULL,0);
     HGDIOBJ old=SelectObject(memDC,hDib);
-    DrawIconEx(memDC,0,0,sfi.hIcon,w,h,0,NULL,DI_NORMAL);
-    // Force full alpha. A 32bpp BI_RGB DIB keeps 0x00 alpha from the icon's
-    // ARGB mask, and Android/phone viewers treat alpha=0 as fully transparent
-    // (rendering a black thumbnail). Setting every alpha byte to 0xFF makes the
-    // saved BMP solid so both the phone gallery and wfm's own preview show it.
+    // Paint an opaque WHITE backdrop first. Icons carry transparent regions;
+    // leaving them empty produced black edges on phone viewers, while forcing
+    // alpha without a backdrop still showed black fringe. White matches how
+    // Windows Explorer renders extracted icons on a light surface.
+    if (bits) {
+        DWORD px=(DWORD)w*(DWORD)h; BYTE* p=(BYTE*)bits;
+        for(DWORD k=0;k<px;k++){ p[k*4+0]=255; p[k*4+1]=255; p[k*4+2]=255; p[k*4+3]=255; }
+    }
+    DrawIconEx(memDC,0,0,hIcon,w,h,0,NULL,DI_NORMAL);
+    // Guarantee full opacity so no viewer interprets any pixel as transparent.
     if (bits) {
         DWORD px = (DWORD)w * (DWORD)h;
         BYTE* p = (BYTE*)bits;
@@ -3280,9 +3423,7 @@ static void onMenuItemExtractIconClick(void) {
         WriteFile(hf,bits,imgSize,&wr,NULL); CloseHandle(hf);
     }
     SelectObject(memDC,old); DeleteObject(hDib); DeleteDC(memDC); ReleaseDC(NULL,hdc);
-    if(ii.hbmMask){DeleteObject(ii.hbmMask);}
-    if(ii.hbmColor){DeleteObject(ii.hbmColor);}
-    DestroyIcon(sfi.hIcon);
+    DestroyIcon(hIcon);
     MessageBoxW(hwndMain,outPath,lc_str.saved_icon,MB_OK|MB_ICONINFORMATION);
 }
 
@@ -3396,38 +3537,179 @@ static void onMenuItemFolderSizeClick(void) {
 }
 
 // ---------- Compare panes: select items that differ ----------
+// ============================================================================
+// Recursive folder comparison. Walk both pane roots fully (not just the first
+// level), collect relative paths + sizes, sort case-insensitively and merge to
+// find entries that exist only on one side or differ in size/type. The result
+// is shown in a scrollable read-only dialog.
+// ============================================================================
+struct RelEntry { wchar_t rel[MAX_PATH]; ULONGLONG size; bool isDir; };
+
+#define CMP_BUDGET 60000   // max files visited per side (guards huge trees)
+#define CMP_OUT_MAX 1200   // max diff lines shown in the result dialog
+
+static void collectTree(const wchar_t* base, const wchar_t* rel,
+                        struct RelEntry** arr, int* n, int* cap, int* budget) {
+    if (*budget <= 0) return;
+    wchar_t pattern[MAX_PATH * 2 + 8];
+    if (rel[0]) swprintf_s(pattern, _countof(pattern), L"%ls\\%ls\\*", base, rel);
+    else        swprintf_s(pattern, _countof(pattern), L"%ls\\*", base);
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (!wcscmp(fd.cFileName, L".") || !wcscmp(fd.cFileName, L"..")) continue;
+        wchar_t child[MAX_PATH];
+        if (rel[0]) swprintf_s(child, _countof(child), L"%ls\\%ls", rel, fd.cFileName);
+        else        wcscpy_s(child, _countof(child), fd.cFileName);
+        bool isDir = !!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+        if (*n >= *cap) {
+            *cap = *cap ? *cap * 2 : 256;
+            *arr = (struct RelEntry*)realloc(*arr, sizeof(struct RelEntry) * (*cap));
+            if (!*arr) { FindClose(h); return; }
+        }
+        struct RelEntry* e = &(*arr)[(*n)++];
+        ZeroMemory(e, sizeof(*e));
+        wcsncpy_s(e->rel, _countof(e->rel), child, _TRUNCATE);
+        e->isDir = isDir;
+        LARGE_INTEGER sz; sz.LowPart = fd.nFileSizeLow; sz.HighPart = fd.nFileSizeHigh;
+        e->size = (ULONGLONG)sz.QuadPart;
+        (*budget)--;
+        // Recurse into real subfolders only (skip junctions/symlinks to avoid loops).
+        if (isDir && !(fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+            collectTree(base, child, arr, n, cap, budget);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+}
+
+static int cmpRelEntry(const void* a, const void* b) {
+    return _wcsicmp(((const struct RelEntry*)a)->rel, ((const struct RelEntry*)b)->rel);
+}
+
+static void cmpAppend(wchar_t* out, size_t cap, size_t* used,
+                      const wchar_t* tag, const wchar_t* rel) {
+    wchar_t line[MAX_PATH + 32];
+    swprintf_s(line, _countof(line), L"%ls%ls\r\n", tag, rel);
+    size_t need = wcslen(line);
+    if (*used + need + 1 < cap) { wcscat_s(out + *used, cap - *used, line); *used += need; }
+}
+
+// Modal read-only result dialog: a multiline mono edit + a Close button.
+static void showTextResultDialog(const wchar_t* title, const wchar_t* body) {
+    HWND hwnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"#32770", title,
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
+        CW_USEDEFAULT, CW_USEDEFAULT, 560, 460, hwndMain, NULL, globalHInstance, NULL);
+    if (!hwnd) { MessageBoxW(hwndMain, body, title, MB_OK); return; }
+    HFONT mono = (HFONT)GetStockObject(ANSI_FIXED_FONT);
+    HWND hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", body,
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY
+        | ES_AUTOVSCROLL | ES_NOHIDESEL,
+        10, 10, 532, 388, hwnd, (HMENU)2001, globalHInstance, NULL);
+    if (hEdit) {
+        SendMessageW(hEdit, EM_LIMITTEXT, 0x7FFFFFFF, 0);  // allow long result text
+        if (mono) SendMessageW(hEdit, WM_SETFONT, (WPARAM)mono, TRUE);
+    }
+    HWND hBtn = CreateWindowExW(0, L"BUTTON", lc_str.proc_close,
+        WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+        230, 406, 100, 32, hwnd, (HMENU)IDOK, globalHInstance, NULL);
+    HFONT ui = getUIFont();
+    if (hBtn && ui) SendMessageW(hBtn, WM_SETFONT, (WPARAM)ui, TRUE);
+    ShowWindow(hwnd, SW_SHOW);
+    SetForegroundWindow(hwnd);
+    MSG msg;
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        // A button notification arrives with the PARENT as msg.hwnd, so match
+        // on the control id (IDOK), and also close on Esc (IDCANCEL)/WM_CLOSE.
+        if (msg.message == WM_COMMAND &&
+            (LOWORD(msg.wParam) == IDOK || LOWORD(msg.wParam) == IDCANCEL))
+            DestroyWindow(hwnd);
+        if (!IsWindow(hwnd)) break;
+        if (!IsDialogMessageW(hwnd, &msg)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+        if (!IsWindow(hwnd)) break;
+    }
+}
+
 void onMenuItemComparePanesClick(void) {
     struct Pane* p0=&panes[0]; struct Pane* p1=&panes[1];
     if(p0->numItems==0 && p1->numItems==0){
         MessageBoxW(hwndMain,lc_str.no_recent,lc_str.compare_panes,MB_OK|MB_ICONINFORMATION);
         return;
     }
-    int onlyLeft=0, onlyRight=0, common=0;
+    // Also select top-level-only differences in the lists for quick locating.
+    int onlyLeft=0, onlyRight=0;
     int i,j;
-    // Clear selection in both panes
     ListView_SetItemState(p0->hwndList,-1,0,LVIS_SELECTED);
     ListView_SetItemState(p1->hwndList,-1,0,LVIS_SELECTED);
-    // Find items in p0 not present in p1 -> select them in p0
     for(i=0;i<p0->numItems;i++){
         bool found=false;
-        for(j=0;j<p1->numItems;j++){
+        for(j=0;j<p1->numItems;j++)
             if(wcscmp(p0->items[i].node->name,p1->items[j].node->name)==0){found=true;break;}
-        }
-        if(found) common++;
-        else { ListView_SetItemState(p0->hwndList,i,LVIS_SELECTED,LVIS_SELECTED); onlyLeft++; }
+        if(!found){ListView_SetItemState(p0->hwndList,i,LVIS_SELECTED,LVIS_SELECTED);onlyLeft++;}
     }
-    // Find items in p1 not present in p0 -> select them in p1
     for(j=0;j<p1->numItems;j++){
         bool found=false;
-        for(i=0;i<p0->numItems;i++){
+        for(i=0;i<p0->numItems;i++)
             if(wcscmp(p1->items[j].node->name,p0->items[i].node->name)==0){found=true;break;}
-        }
-        if(!found){ ListView_SetItemState(p1->hwndList,j,LVIS_SELECTED,LVIS_SELECTED); onlyRight++; }
+        if(!found){ListView_SetItemState(p1->hwndList,j,LVIS_SELECTED,LVIS_SELECTED);onlyRight++;}
     }
-    wchar_t msg[256];
-    swprintf_s(msg,256,L"Left only: %d   Right only: %d   Common: %d",onlyLeft,onlyRight,common);
-    MessageBoxW(hwndMain,msg,(onlyLeft==0&&onlyRight==0)?lc_str.panes_same:lc_str.panes_diff,
-        MB_OK|MB_ICONINFORMATION);
+
+    // Recursive comparison of the two pane roots.
+    wchar_t root0[MAX_PATH]={0}, root1[MAX_PATH]={0};
+    getFileNodePath(p0->currPath, root0);
+    getFileNodePath(p1->currPath, root1);
+    struct RelEntry *a=NULL, *b=NULL;
+    int na=0, ca=0, nb=0, cb=0, budget=CMP_BUDGET;
+    collectTree(root0, L"", &a, &na, &ca, &budget);
+    budget = CMP_BUDGET;
+    collectTree(root1, L"", &b, &nb, &cb, &budget);
+    if (a) qsort(a, na, sizeof(struct RelEntry), cmpRelEntry);
+    if (b) qsort(b, nb, sizeof(struct RelEntry), cmpRelEntry);
+
+    int cLeft=0, cRight=0, cChanged=0, shown=0;
+    // Heap-built result so large trees do not overflow a stack buffer. Sized to
+    // hold up to CMP_OUT_MAX full-path lines (each up to MAX_PATH+32 chars).
+    size_t cap = (size_t)CMP_OUT_MAX * (MAX_PATH + 40);
+    wchar_t* out = (wchar_t*)malloc(cap * sizeof(wchar_t));
+    if (!out) { free(a); free(b); return; }
+    out[0]=L'\0'; size_t used=0;
+    i=0; j=0;
+    while (i < na || j < nb) {
+        int cmp;
+        if (i >= na) cmp = 1;
+        else if (j >= nb) cmp = -1;
+        else cmp = _wcsicmp(a[i].rel, b[j].rel);
+        if (cmp < 0) {
+            cLeft++;
+            if (shown < CMP_OUT_MAX) { cmpAppend(out, cap, &used, lc_str.cmp_tag_left, a[i].rel); shown++; }
+            i++;
+        } else if (cmp > 0) {
+            cRight++;
+            if (shown < CMP_OUT_MAX) { cmpAppend(out, cap, &used, lc_str.cmp_tag_right, b[j].rel); shown++; }
+            j++;
+        } else {
+            // Same relative path: flag when type differs or both are files with different size.
+            if (a[i].isDir != b[j].isDir ||
+                (!a[i].isDir && a[i].size != b[j].size)) {
+                cChanged++;
+                if (shown < CMP_OUT_MAX) { cmpAppend(out, cap, &used, lc_str.cmp_tag_changed, a[i].rel); shown++; }
+            }
+            i++; j++;
+        }
+    }
+    int totalDiff = cLeft + cRight + cChanged;
+    wchar_t head[256];
+    swprintf_s(head, _countof(head), lc_str.cmp_summary_fmt, cLeft, cRight, cChanged);
+    size_t hl = wcslen(head);
+    wchar_t* final = (wchar_t*)malloc((hl + wcslen(out) + 16) * sizeof(wchar_t));
+    if (final) {
+        swprintf_s(final, hl + wcslen(out) + 16, L"%ls\r\n\r\n%ls", head,
+                   totalDiff == 0 ? lc_str.cmp_no_diff : out);
+        showTextResultDialog(lc_str.compare_panes, final);
+        free(final);
+    } else {
+        showTextResultDialog(lc_str.compare_panes, head);
+    }
+    free(out); free(a); free(b);
 }
 
 // Compare the selected file in the active pane with the first selected file in the other pane.

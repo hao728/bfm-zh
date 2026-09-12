@@ -16,7 +16,12 @@ static bool isFavItem(LONG_PTR p, int* outIdx) {
 }
 
 static HTREEITEM favRootItem = NULL;
-static HIMAGELIST favStateList = NULL;  // state image list: index 1 = star overlay
+// Private normal image list: a duplicate of the system small-icon list with a
+// golden star appended. System icons keep their original indices; the star gets
+// a new index used only by the Favorites branch, so favorites are visually
+// distinct from drives/folders without mutating the shared system list.
+static HIMAGELIST treeNormalList = NULL;
+static int starIconIndex = -1;
 
 // Create a 16x16 golden star bitmap (magenta = transparent mask).
 static HBITMAP createStarBitmap(void) {
@@ -47,40 +52,43 @@ static HBITMAP createStarBitmap(void) {
     return hbmp;
 }
 
-// Bind the tree to the shared system small-icon image list (normal icons) plus
-// a tiny state image list containing only the star overlay. State images are
-// drawn next to normal icons, so we never copy or modify the system list.
+// Bind the tree to a PRIVATE copy of the system small-icon image list. We
+// duplicate the shared list (preserving every system icon index used by
+// getFileInfo) and append one golden-star icon for the Favorites branch. This
+// keeps the real drive/folder icons intact while giving favorites a distinct
+// colored marker; it never modifies the process-wide shared system list.
 static void bindSystemImageList(void) {
-    HIMAGELIST himlBig, himlSmall;
+    HIMAGELIST himlBig = NULL, himlSmall = NULL;
+    HIMAGELIST sysList = NULL;
     if (Shell_GetImageLists(&himlBig, &himlSmall) && himlSmall) {
-        TreeView_SetImageList(hwndTreeview, himlSmall, TVSIL_NORMAL);
+        sysList = himlSmall;
     } else {
         SHFILEINFO sfi = {0};
-        HIMAGELIST h = (HIMAGELIST)SHGetFileInfo(L"", 0, &sfi, sizeof(SHFILEINFO),
+        sysList = (HIMAGELIST)SHGetFileInfo(L"", 0, &sfi, sizeof(SHFILEINFO),
                             SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
-        if (h) TreeView_SetImageList(hwndTreeview, h, TVSIL_NORMAL);
     }
-    // State list: slot 0 = empty (no overlay), slot 1 = star.
-    if (!favStateList) {
-        favStateList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 2, 0);
-        if (favStateList) {
-            ImageList_AddMasked(favStateList,
-                CreateBitmap(16, 16, 1, 1, NULL), RGB(0, 0, 0));  // slot 0 empty
+    if (!sysList) return;
+
+    if (!treeNormalList) {
+        treeNormalList = ImageList_Duplicate(sysList);
+        if (treeNormalList) {
             HBITMAP star = createStarBitmap();
             if (star) {
-                ImageList_AddMasked(favStateList, star, RGB(255, 0, 255));
+                int idx = ImageList_AddMasked(treeNormalList, star, RGB(255, 0, 255));
+                if (idx >= 0) starIconIndex = idx;
                 DeleteObject(star);
             }
         }
     }
-    if (favStateList) TreeView_SetImageList(hwndTreeview, favStateList, TVSIL_STATE);
+    TreeView_SetImageList(hwndTreeview,
+        treeNormalList ? treeNormalList : sysList, TVSIL_NORMAL);
 }
 
 static void insertFavoritesBranch(void) {
-    // Root node uses a normal folder icon.
+    // Root node uses the golden star when available, else a folder icon.
     struct FileInfo rootFi = {0};
     getFileInfo(L"C:\\", TYPE_DIR, false, &rootFi);
-    int rootIcon = rootFi.icon;
+    int rootIcon = (starIconIndex >= 0) ? starIconIndex : rootFi.icon;
 
     TVINSERTSTRUCT tvis = {0};
     tvis.hParent = NULL;
@@ -110,16 +118,14 @@ static void insertFavoritesBranch(void) {
         ci.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
         const wchar_t* name = wcsrchr(favs[i], L'\\');
         name = name ? name + 1 : favs[i];
-        // Prefix with a star char so favorites are distinguishable without a
-        // custom image list (which broke system icons under Wine).
-        static wchar_t labeled[MAX_PATH + 4];
-        swprintf_s(labeled, _countof(labeled), L"\u2605 %ls", name);
-        ci.itemex.pszText = labeled;
-        ci.itemex.cchTextMax = wcslen(labeled);
+        // Plain name; the golden-star icon already marks it as a favorite (a
+        // U+2605 text prefix was dropped: Wine's default font lacks that glyph).
+        ci.itemex.pszText = (LPWSTR)name;
+        ci.itemex.cchTextMax = wcslen(name);
         ci.itemex.lParam = (LPARAM)(FAV_ITEM_MARK - i);
-        // Real file/folder icon from the system image list.
-        ci.itemex.iImage = fi.icon;
-        ci.itemex.iSelectedImage = fi.icon;
+        int itemIcon = (starIconIndex >= 0) ? starIconIndex : fi.icon;
+        ci.itemex.iImage = itemIcon;
+        ci.itemex.iSelectedImage = itemIcon;
         TreeView_InsertItem(hwndTreeview, &ci);
     }
 

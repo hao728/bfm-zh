@@ -150,10 +150,10 @@ static LRESULT CALLBACK DiffWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         ListView_SetExtendedListViewStyle(g_diffList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
         LVCOLUMNW col = {0};
         col.mask = LVCF_TEXT | LVCF_WIDTH;
-        col.pszText = L"Left";
+        col.pszText = lc_str.diff_left_label;
         col.cx = 380;
         ListView_InsertColumn(g_diffList, 0, &col);
-        col.pszText = L"Right";
+        col.pszText = lc_str.diff_right_label;
         ListView_InsertColumn(g_diffList, 1, &col);
 
         if (g_diffResult) {
@@ -172,7 +172,7 @@ static LRESULT CALLBACK DiffWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         g_diffFont = (HFONT)GetStockObject(ANSI_FIXED_FONT);
         SendMessage(g_diffList, WM_SETFONT, (WPARAM)g_diffFont, TRUE);
 
-        CreateWindowEx(0, L"BUTTON", L"Close", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        CreateWindowEx(0, L"BUTTON", lc_str.proc_close, WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
                        0, 0, 0, 0, hwnd, (HMENU)IDC_DIFF_CLOSE, globalHInstance, NULL);
         return 0;
     }
@@ -234,8 +234,8 @@ static const wchar_t DIFF_CLASS[] = L"WfmDiffViewer";
 void diffShowDialog(HWND parent, const wchar_t* leftPath, const wchar_t* rightPath) {
     DiffResult r;
     if (!diffFiles(leftPath, rightPath, &r)) {
-        MessageBoxW(parent, L"Failed to read files or files too large (>2000 lines).",
-                    L"Diff", MB_OK | MB_ICONWARNING);
+        MessageBoxW(parent, lc_str.err_diff_read,
+                    lc_str.diff_files, MB_OK | MB_ICONWARNING);
         return;
     }
     g_diffResult = &r;

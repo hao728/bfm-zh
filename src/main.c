@@ -629,7 +629,8 @@ static bool isImageExt(const wchar_t* path) {
     const wchar_t* ext = dot + 1;
     return !_wcsicmp(ext, L"jpg") || !_wcsicmp(ext, L"jpeg") ||
            !_wcsicmp(ext, L"png") || !_wcsicmp(ext, L"gif") ||
-           !_wcsicmp(ext, L"bmp") || !_wcsicmp(ext, L"ico");
+           !_wcsicmp(ext, L"bmp") || !_wcsicmp(ext, L"ico") ||
+           !_wcsicmp(ext, L"tif") || !_wcsicmp(ext, L"tiff");
 }
 
 static bool isTextExt(const wchar_t* path) {
