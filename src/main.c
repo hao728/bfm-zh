@@ -8,6 +8,7 @@ extern struct FileNode* currPathFileNode;
 extern HWND hwndNavbar;
 extern HWND hwndSizebar;
 extern HWND hwndStatusbar;
+extern void onMenuItemProcessManagerClick(void);
 extern HWND hwndToolbar;
 extern HWND hwndTreeview;
 
@@ -575,7 +576,7 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_TOOL_NOTEPAD: ShellExecuteW(NULL, L"open", L"notepad.exe", NULL, NULL, SW_SHOW); break;
         case ID_TOOL_CMD: ShellExecuteW(NULL, L"open", L"cmd.exe", NULL, NULL, SW_SHOW); break;
         case ID_TOOL_REGEDIT: ShellExecuteW(NULL, L"open", L"regedit.exe", NULL, NULL, SW_SHOW); break;
-        case ID_TOOL_TASKMGR: ShellExecuteW(NULL, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOW); break;
+        case ID_TOOL_TASKMGR: onMenuItemProcessManagerClick(); break;
         case ID_TOOL_LAUNCHER: onMenuItemLauncherChooseClick(); break;
     }
 }
@@ -1006,6 +1007,12 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
     switch (msg) {
         case WM_USER_EXTRACT_DONE:
             navigateRefresh();
+            break;
+        case WM_USER_BOOST_START:
+            setStatusbarText(L"正在清理内存，请稍候...");
+            break;
+        case WM_USER_BOOST_DONE:
+            setStatusbarText(L"内存清理完成，正在启动...");
             break;
         case WM_SIZE: {
             resizeControls();

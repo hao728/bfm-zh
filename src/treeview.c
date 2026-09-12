@@ -16,22 +16,64 @@ static bool isFavItem(LONG_PTR p, int* outIdx) {
 }
 
 static HTREEITEM favRootItem = NULL;
+static HIMAGELIST favStateList = NULL;  // state image list: index 1 = star overlay
 
-// Bind the tree to the shared system small-icon image list. Icon indices come
-// from SHGetFileInfo(SHGFI_SYSICONINDEX) / getFileInfo, which index into this
-// same list. We use the system list directly (never copy it) because Wine's
-// ImageList_GetIcon/AddIcon copy path is unreliable and produced blank icons.
+// Create a 16x16 golden star bitmap (magenta = transparent mask).
+static HBITMAP createStarBitmap(void) {
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    HBITMAP hbmp = CreateCompatibleBitmap(hdcScreen, 16, 16);
+    HBITMAP oldBmp = (HBITMAP)SelectObject(hdcMem, hbmp);
+    HBRUSH bg = CreateSolidBrush(RGB(255, 0, 255));
+    RECT rc = {0, 0, 16, 16};
+    FillRect(hdcMem, &rc, bg);
+    DeleteObject(bg);
+    POINT pts[10] = {
+        {8, 0}, {10, 6}, {16, 6}, {11, 10}, {13, 15},
+        {8, 12}, {3, 15}, {5, 10}, {0, 6}, {6, 6}
+    };
+    HBRUSH fill = CreateSolidBrush(RGB(255, 193, 7));
+    HPEN border = CreatePen(PS_SOLID, 1, RGB(180, 120, 0));
+    HBRUSH oldBrush = (HBRUSH)SelectObject(hdcMem, fill);
+    HPEN oldPen = (HPEN)SelectObject(hdcMem, border);
+    Polygon(hdcMem, pts, 10);
+    SelectObject(hdcMem, oldBrush);
+    SelectObject(hdcMem, oldPen);
+    DeleteObject(fill);
+    DeleteObject(border);
+    SelectObject(hdcMem, oldBmp);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+    return hbmp;
+}
+
+// Bind the tree to the shared system small-icon image list (normal icons) plus
+// a tiny state image list containing only the star overlay. State images are
+// drawn next to normal icons, so we never copy or modify the system list.
 static void bindSystemImageList(void) {
     HIMAGELIST himlBig, himlSmall;
     if (Shell_GetImageLists(&himlBig, &himlSmall) && himlSmall) {
         TreeView_SetImageList(hwndTreeview, himlSmall, TVSIL_NORMAL);
-        return;
+    } else {
+        SHFILEINFO sfi = {0};
+        HIMAGELIST h = (HIMAGELIST)SHGetFileInfo(L"", 0, &sfi, sizeof(SHFILEINFO),
+                            SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+        if (h) TreeView_SetImageList(hwndTreeview, h, TVSIL_NORMAL);
     }
-    // Fallback: SHGetFileInfo also returns the system small-icon list.
-    SHFILEINFO sfi = {0};
-    HIMAGELIST h = (HIMAGELIST)SHGetFileInfo(L"", 0, &sfi, sizeof(SHFILEINFO),
-                        SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
-    if (h) TreeView_SetImageList(hwndTreeview, h, TVSIL_NORMAL);
+    // State list: slot 0 = empty (no overlay), slot 1 = star.
+    if (!favStateList) {
+        favStateList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 2, 0);
+        if (favStateList) {
+            ImageList_AddMasked(favStateList,
+                CreateBitmap(16, 16, 1, 1, NULL), RGB(0, 0, 0));  // slot 0 empty
+            HBITMAP star = createStarBitmap();
+            if (star) {
+                ImageList_AddMasked(favStateList, star, RGB(255, 0, 255));
+                DeleteObject(star);
+            }
+        }
+    }
+    if (favStateList) TreeView_SetImageList(hwndTreeview, favStateList, TVSIL_STATE);
 }
 
 static void insertFavoritesBranch(void) {

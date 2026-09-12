@@ -1,5 +1,7 @@
 #include "main.h"
 #include <oleidl.h>
+#include <wincrypt.h>
+#include <tlhelp32.h>
 
 #define COLUMN_NAME_IDX 0
 #define COLUMN_TYPE_IDX 1
@@ -133,20 +135,22 @@ void onMenuItemLauncherBoostAggressiveClick(void);
 void onMenuItemRunDX11Click(void);
 void onMenuItemRunD3D9Click(void);
 void onMenuItemRunNoDebugClick(void);
-void onMenuItemRunUEDX11Click(void);
-void onMenuItemRunUEDX12Click(void);
 void onMenuItemRunWindowedClick(void);
-void onMenuItemRunBorderlessClick(void);
+void onMenuItemRunCustomClick(void);
+void onMenuItemFolderSizeClick(void);
+void onMenuItemHashSHA1Click(void);
+void onMenuItemHashSHA256Click(void);
+void onMenuItemProcessManagerClick(void);
 
 static struct ContextMenuItem cmiLauncherBoost = {NULL, &onMenuItemLauncherBoostClick, NULL};
 static struct ContextMenuItem cmiLauncherBoostAggressive = {NULL, &onMenuItemLauncherBoostAggressiveClick, NULL};
 static struct ContextMenuItem cmiRunDX11 = {NULL, &onMenuItemRunDX11Click, NULL};
 static struct ContextMenuItem cmiRunD3D9 = {NULL, &onMenuItemRunD3D9Click, NULL};
 static struct ContextMenuItem cmiRunNoDebug = {NULL, &onMenuItemRunNoDebugClick, NULL};
-static struct ContextMenuItem cmiRunUEDX11 = {NULL, &onMenuItemRunUEDX11Click, NULL};
-static struct ContextMenuItem cmiRunUEDX12 = {NULL, &onMenuItemRunUEDX12Click, NULL};
 static struct ContextMenuItem cmiRunWindowed = {NULL, &onMenuItemRunWindowedClick, NULL};
-static struct ContextMenuItem cmiRunBorderless = {NULL, &onMenuItemRunBorderlessClick, NULL};
+static struct ContextMenuItem cmiRunCustom = {NULL, &onMenuItemRunCustomClick, NULL};
+static struct ContextMenuItem cmiHashSHA1 = {NULL, &onMenuItemHashSHA1Click, NULL};
+static struct ContextMenuItem cmiHashSHA256 = {NULL, &onMenuItemHashSHA256Click, NULL};
 static struct ContextMenuItem cmiLauncherRunWith = {NULL, &onMenuItemLauncherRunWithClick, NULL};
 static struct ContextMenuItem cmiLauncherChoose = {NULL, &onMenuItemLauncherChooseClick, NULL};
 static struct ContextMenuItem cmiDiff = {NULL, &onMenuItemDiffClick, NULL};
@@ -800,15 +804,15 @@ static void createContextMenu(enum ContextMenuType type) {
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoost, false);
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoostAggressive, false);
                 {
-                    // "Run with args" submenu: Unity / Unreal / generic flags.
+                    // "Run with args" submenu: generic presets + custom input.
+                    // No engine labels — args are usable across engines where
+                    // supported; custom input covers everything else.
                     HMENU hArgs = CreatePopupMenu();
+                    addContextMenuItem(hArgs, id++, &cmiRunCustom, true);
                     addContextMenuItem(hArgs, id++, &cmiRunDX11, false);
                     addContextMenuItem(hArgs, id++, &cmiRunD3D9, false);
-                    addContextMenuItem(hArgs, id++, &cmiRunNoDebug, true);
-                    addContextMenuItem(hArgs, id++, &cmiRunUEDX11, false);
-                    addContextMenuItem(hArgs, id++, &cmiRunUEDX12, true);
-                    addContextMenuItem(hArgs, id++, &cmiRunWindowed, false);
-                    addContextMenuItem(hArgs, id++, &cmiRunBorderless, true);
+                    addContextMenuItem(hArgs, id++, &cmiRunNoDebug, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunWindowed, true);
                     AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hArgs, lc_str.run_with_args);
                 }
                 createOpenWithMenu(&id);
@@ -829,6 +833,8 @@ static void createContextMenu(enum ContextMenuType type) {
             addContextMenuItem(hMenu, id++, &cmiCopyPath, false);
             addContextMenuItem(hMenu, id++, &cmiExtractIcon, false);
             addContextMenuItem(hMenu, id++, &cmiMD5, false);
+            addContextMenuItem(hMenu, id++, &cmiHashSHA1, false);
+            addContextMenuItem(hMenu, id++, &cmiHashSHA256, false);
             addContextMenuItem(hMenu, id++, &cmiViewText, false);
             addContextMenuItem(hMenu, id++, &cmiFolderSize, false);
             addContextMenuItem(hMenu, id++, &cmiCopyTo, false);
@@ -951,11 +957,10 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     // Phone storage is usually >70%; shift thresholds so red only
                     // means genuinely low (<5% free), yellow = warning.
                     COLORREF barColor = (pct < 0.8) ? RGB(0,150,0) : (pct < 0.95 ? RGB(220,170,0) : RGB(210,50,50));
-                    // Capacity bar: bar fills left 55% of the size column,
-                    // text (used/total + label) sits in the right 45%. This
-                    // avoids crowding and keeps the label fully visible.
+                    // Capacity bar: bar fills left 50% of the (150px) size
+                    // column, full "used/total GB" text in the right 50%.
                     int barX = sizeX + 2;
-                    int barW = (w2 - 4) * 55 / 100;
+                    int barW = (w2 - 4) * 50 / 100;
                     int barY = rc.top + 3;
                     int barH = rowH - 6;
                     // Track (light gray background)
@@ -978,14 +983,12 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     SetBkMode(hdc, TRANSPARENT);
                     RECT pctR = {barX, barY, barX + barW, barY + barH};
                     DrawTextW(hdc, pctText, -1, &pctR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-                    // Used/total + shared-storage label to the right of the bar
-                    wchar_t capText[80];
-                    swprintf_s(capText, 80, L"%.0f/%.0fG %ls",
-                               usedGB, totalGB,
-                               lc_str.shared_storage ? lc_str.shared_storage : L"shared");
+                    // Full used/total GB to the right of the bar.
+                    wchar_t capText[32];
+                    swprintf_s(capText, 32, L"%.0f/%.0f GB", usedGB, totalGB);
                     SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
                     RECT textR = {barX + barW + 4, rc.top, sizeX + w2 - 2, rc.bottom};
-                    DrawTextW(hdc, capText, -1, &textR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                    DrawTextW(hdc, capText, -1, &textR, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
                 } else if (item->node->type == TYPE_FILE) {
                     RECT sizeR = {sizeX + 4, rc.top, sizeX + w2 - 4, rc.bottom};
                     DrawTextW(hdc, item->formattedSize, -1, &sizeR, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
@@ -1325,20 +1328,21 @@ static void createLVColumns(HWND hwndList) {
     LVCOLUMN column = {0};
     column.mask = LVCF_WIDTH | LVCF_TEXT;
 
-    // Kept compact so all four columns fit inside a split-view pane without a horizontal scrollbar.
-    column.cx = 185;
+    // Column widths tuned so the size column has room for a full capacity bar
+    // plus "used/total GB" text (no truncation). Name column is flexible.
+    column.cx = 170;
     column.pszText = lc_str.name;
     ListView_InsertColumn(hwndList, COLUMN_NAME_IDX, &column);
 
-    column.cx = 85;
+    column.cx = 80;
     column.pszText = lc_str.type;
     ListView_InsertColumn(hwndList, COLUMN_TYPE_IDX, &column);
 
-    column.cx = 65;
+    column.cx = 150;
     column.pszText = lc_str.size;
     ListView_InsertColumn(hwndList, COLUMN_SIZE_IDX, &column);
 
-    column.cx = 95;
+    column.cx = 100;
     column.pszText = lc_str.date;
     ListView_InsertColumn(hwndList, COLUMN_DATE_IDX, &column);
 }
@@ -1470,10 +1474,10 @@ void createContentView() {
     cmiRunDX11.text = lc_str.arg_dx11;
     cmiRunD3D9.text = lc_str.arg_d3d9;
     cmiRunNoDebug.text = lc_str.arg_nodebug;
-    cmiRunUEDX11.text = lc_str.arg_ue_dx11;
-    cmiRunUEDX12.text = lc_str.arg_ue_dx12;
     cmiRunWindowed.text = lc_str.arg_windowed;
-    cmiRunBorderless.text = lc_str.arg_borderless;
+    cmiRunCustom.text = lc_str.arg_custom;
+    cmiHashSHA1.text = lc_str.hash_sha1;
+    cmiHashSHA256.text = lc_str.hash_sha256;
     cmiLauncherRunWith.text = lc_str.launcher_run_with;
     cmiLauncherChoose.text = lc_str.launcher_choose;
     cmiDiff.text = lc_str.diff_files;
@@ -1836,7 +1840,11 @@ struct LauncherArg {
 
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
-    if (a->boostMode >= 0) launcherBoostMemory(a->boostMode);
+    if (a->boostMode >= 0) {
+        PostMessage(hwndMain, WM_USER_BOOST_START, 0, 0);
+        launcherBoostMemory(a->boostMode);
+        PostMessage(hwndMain, WM_USER_BOOST_DONE, 0, 0);
+    }
 
     // Working directory MUST be the target's folder (games load sibling files
     // relative to their own exe), never the launcher's folder.
@@ -1921,12 +1929,143 @@ static void launchWithArgs(const wchar_t* args) {
 void onMenuItemRunDX11Click(void) { launchWithArgs(L"-force-d3d11 -force-d3d11-singlethread"); }
 void onMenuItemRunD3D9Click(void) { launchWithArgs(L"-force-d3d9"); }
 void onMenuItemRunNoDebugClick(void) { launchWithArgs(L"-force-opengl"); }
-// Unreal Engine: force D3D11 / D3D12 renderer.
-void onMenuItemRunUEDX11Click(void) { launchWithArgs(L"-d3d11"); }
-void onMenuItemRunUEDX12Click(void) { launchWithArgs(L"-d3d12"); }
-// Generic: windowed / borderless window (works for Unity and many native games).
-void onMenuItemRunWindowedClick(void) { launchWithArgs(L"-screen-fullscreen 0 -windowed"); }
-void onMenuItemRunBorderlessClick(void) { launchWithArgs(L"-popupwindow -screen-fullscreen 1"); }
+// Generic: windowed mode (works across Unity, Unreal, and many native games).
+void onMenuItemRunWindowedClick(void) { launchWithArgs(L"-windowed"); }
+// Custom: prompt the user for any command-line args (e.g. -screen-width 1920
+// -screen-height 1080 for custom resolution, or any engine-specific flags).
+void onMenuItemRunCustomClick(void) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    wchar_t* input = InputDialog(lc_str.arg_custom,
+        L"输入命令行参数（如 -screen-width 1920 -screen-height 1080）", L"", false);
+    if (input && input[0]) {
+        launchWithArgs(input);
+        free(input);
+    }
+}
+
+// ============================================================================
+// File hash: compute SHA1/SHA256 via CryptoAPI, copy to clipboard.
+// (MD5 uses the existing computeFileMD5 helper.)
+// ============================================================================
+static void copyFileHash(const wchar_t* path, ALG_ID algId, const wchar_t* algName) {
+    HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        MessageBoxW(hwndMain, L"无法打开文件", algName, MB_OK | MB_ICONERROR);
+        return;
+    }
+    HCRYPTPROV hProv = 0;
+    HCRYPTHASH hHash = 0;
+    if (!CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+        CloseHandle(hFile); return;
+    }
+    if (!CryptCreateHash(hProv, algId, 0, 0, &hHash)) {
+        CryptReleaseContext(hProv, 0); CloseHandle(hFile); return;
+    }
+    BYTE buf[65536];
+    DWORD read;
+    while (ReadFile(hFile, buf, sizeof(buf), &read, NULL) && read > 0)
+        CryptHashData(hHash, buf, read, 0);
+    CloseHandle(hFile);
+
+    DWORD hashLen = 0, hashSize = sizeof(DWORD);
+    CryptGetHashParam(hHash, HP_HASHSIZE, (BYTE*)&hashLen, &hashSize, 0);
+    BYTE* hashBytes = (BYTE*)malloc(hashLen);
+    CryptGetHashParam(hHash, HP_HASHVAL, hashBytes, &hashLen, 0);
+    CryptDestroyHash(hHash);
+    CryptReleaseContext(hProv, 0);
+
+    wchar_t hex[128] = {0};
+    for (DWORD i = 0; i < hashLen; i++)
+        swprintf_s(hex + i * 2, 3, L"%02x", hashBytes[i]);
+    free(hashBytes);
+
+    // Copy to clipboard.
+    if (OpenClipboard(hwndMain)) {
+        EmptyClipboard();
+        size_t bytesLen = (wcslen(hex) + 1) * sizeof(wchar_t);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytesLen);
+        if (hMem) {
+            wchar_t* p = (wchar_t*)GlobalLock(hMem);
+            wcscpy_s(p, wcslen(hex) + 1, hex);
+            GlobalUnlock(hMem);
+            SetClipboardData(CF_UNICODETEXT, hMem);
+        }
+        CloseClipboard();
+    }
+    wchar_t msg[300];
+    swprintf_s(msg, 300, L"%ls 已复制到剪贴板：\n\n%ls", algName, hex);
+    MessageBoxW(hwndMain, msg, lc_str.copy_hash, MB_OK | MB_ICONINFORMATION);
+}
+
+void onMenuItemHashSHA1Click(void) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    wchar_t path[MAX_PATH] = {0}; getFileNodePath(selectedItems[0], path);
+    copyFileHash(path, CALG_SHA1, L"SHA1");
+}
+void onMenuItemHashSHA256Click(void) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    wchar_t path[MAX_PATH] = {0}; getFileNodePath(selectedItems[0], path);
+    copyFileHash(path, CALG_SHA_256, L"SHA256");
+}
+
+// ============================================================================
+// Process manager: list running processes via Toolhelp32, allow termination.
+// Simple modal dialog with a listbox and a "Kill" button.
+// ============================================================================
+static HWND hProcDlg = NULL;
+static HWND hProcList = NULL;
+
+static void refreshProcessList(void) {
+    SendMessageW(hProcList, LB_RESETCONTENT, 0, 0);
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return;
+    PROCESSENTRY32W pe;
+    pe.dwSize = sizeof(PROCESSENTRY32W);
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            wchar_t item[260];
+            swprintf_s(item, 260, L"%ls  (PID: %lu)", pe.szExeFile, pe.th32ProcessID);
+            int idx = (int)SendMessageW(hProcList, LB_ADDSTRING, 0, (LPARAM)item);
+            SendMessageW(hProcList, LB_SETITEMDATA, idx, pe.th32ProcessID);
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+}
+
+void onMenuItemProcessManagerClick(void) {
+    // Build a simple dialog template in memory: listbox + 3 buttons.
+    // Use a lightweight approach: create a popup window manually.
+    HWND hwnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"#32770", lc_str.process_manager,
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
+        CW_USEDEFAULT, CW_USEDEFAULT, 420, 380, hwndMain, NULL, globalHInstance, NULL);
+    if (!hwnd) return;
+    // Listbox
+    CreateWindowExW(0, L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
+        10, 10, 390, 290, hwnd, (HMENU)1001, globalHInstance, NULL);
+    // Buttons
+    CreateWindowExW(0, L"BUTTON", L"结束进程", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        10, 310, 100, 30, hwnd, (HMENU)1002, globalHInstance, NULL);
+    CreateWindowExW(0, L"BUTTON", L"刷新", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        120, 310, 80, 30, hwnd, (HMENU)1003, globalHInstance, NULL);
+    CreateWindowExW(0, L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        300, 310, 100, 30, hwnd, (HMENU)IDOK, globalHInstance, NULL);
+
+    hProcDlg = hwnd;
+    hProcList = GetDlgItem(hwnd, 1001);
+    refreshProcessList();
+
+    // Modal message loop.
+    ShowWindow(hwnd, SW_SHOW);
+    MSG msg;
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        if (!IsDialogMessageW(hwnd, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        if (!IsWindow(hwnd)) break;
+    }
+}
 
 // Context menu entry: free RAM then launch the target through the saved external
 // launcher (which receives the target path as its first argument). Only shown
