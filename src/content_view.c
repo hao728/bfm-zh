@@ -91,6 +91,8 @@ static bool launcherGetSaved(wchar_t* out);
 void onMenuItemLauncherBoostClick(void);
 void onMenuItemLauncherRunWithClick(void);
 void onMenuItemLauncherChooseClick(void);
+void onMenuItemRunAdaptiveWClick(void);
+void onMenuItemRunAdaptiveFClick(void);
 static void onMenuItemDiffClick(void);
 void recentMenu(void);
 void navGoBack(void);
@@ -135,7 +137,6 @@ void onMenuItemLauncherBoostAggressiveClick(void);
 void onMenuItemRunDX11Click(void);
 void onMenuItemRunD3D9Click(void);
 void onMenuItemRunNoDebugClick(void);
-void onMenuItemRunWindowedClick(void);
 void onMenuItemRunCustomClick(void);
 void onMenuItemFolderSizeClick(void);
 void onMenuItemHashSHA1Click(void);
@@ -147,7 +148,8 @@ static struct ContextMenuItem cmiLauncherBoostAggressive = {NULL, &onMenuItemLau
 static struct ContextMenuItem cmiRunDX11 = {NULL, &onMenuItemRunDX11Click, NULL};
 static struct ContextMenuItem cmiRunD3D9 = {NULL, &onMenuItemRunD3D9Click, NULL};
 static struct ContextMenuItem cmiRunNoDebug = {NULL, &onMenuItemRunNoDebugClick, NULL};
-static struct ContextMenuItem cmiRunWindowed = {NULL, &onMenuItemRunWindowedClick, NULL};
+static struct ContextMenuItem cmiRunAdaptiveW = {NULL, &onMenuItemRunAdaptiveWClick, NULL};
+static struct ContextMenuItem cmiRunAdaptiveF = {NULL, &onMenuItemRunAdaptiveFClick, NULL};
 static struct ContextMenuItem cmiRunCustom = {NULL, &onMenuItemRunCustomClick, NULL};
 static struct ContextMenuItem cmiHashSHA1 = {NULL, &onMenuItemHashSHA1Click, NULL};
 static struct ContextMenuItem cmiHashSHA256 = {NULL, &onMenuItemHashSHA256Click, NULL};
@@ -809,10 +811,11 @@ static void createContextMenu(enum ContextMenuType type) {
                     // supported; custom input covers everything else.
                     HMENU hArgs = CreatePopupMenu();
                     addContextMenuItem(hArgs, id++, &cmiRunCustom, true);
+                    addContextMenuItem(hArgs, id++, &cmiRunAdaptiveW, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunAdaptiveF, false);
                     addContextMenuItem(hArgs, id++, &cmiRunDX11, false);
                     addContextMenuItem(hArgs, id++, &cmiRunD3D9, false);
-                    addContextMenuItem(hArgs, id++, &cmiRunNoDebug, false);
-                    addContextMenuItem(hArgs, id++, &cmiRunWindowed, true);
+                    addContextMenuItem(hArgs, id++, &cmiRunNoDebug, true);
                     AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hArgs, lc_str.run_with_args);
                 }
                 createOpenWithMenu(&id);
@@ -1474,7 +1477,8 @@ void createContentView() {
     cmiRunDX11.text = lc_str.arg_dx11;
     cmiRunD3D9.text = lc_str.arg_d3d9;
     cmiRunNoDebug.text = lc_str.arg_nodebug;
-    cmiRunWindowed.text = lc_str.arg_windowed;
+    cmiRunAdaptiveW.text = lc_str.adaptive_windowed;
+    cmiRunAdaptiveF.text = lc_str.adaptive_fullscreen;
     cmiRunCustom.text = lc_str.arg_custom;
     cmiHashSHA1.text = lc_str.hash_sha1;
     cmiHashSHA256.text = lc_str.hash_sha256;
@@ -1836,6 +1840,8 @@ struct LauncherArg {
     bool useExternal;   // true = run via external launcher; false = always run target
     int boostMode;      // 0 = balanced, 1 = aggressive, -1 = no boost
     wchar_t extraArgs[256];  // command-line args appended to the game (Unity/UE flags)
+    bool useWineDesktop;     // true = wrap target in a Wine virtual desktop (generic windowed mode)
+    int deskW, deskH;        // virtual desktop resolution (ignored unless useWineDesktop)
 };
 
 static DWORD WINAPI launcherThread(LPVOID param) {
@@ -1852,18 +1858,33 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     getParentDirFromPath(a->target, targetDir);
 
     bool useExternal = a->useExternal && a->launcher[0] && isPathExists(a->launcher);
-    wchar_t* app = useExternal ? a->launcher : a->target;
 
-    // Command line: exe path + optional extra args (Unity -force-d3d11 etc.).
-    // This mirrors Winlator shortcut "Exec Arguments", which are passed to the
-    // game itself, not set as Wine environment variables.
+    // Command line. Two shapes:
+    //  1) Normal: "<exe>" <extraArgs>
+    //  2) Wine virtual desktop (generic windowed mode for unknown engines):
+    //     explorer.exe /desktop=WFM-ADAPTIVE,WxH "<exe>" <extraArgs>
+    // The /desktop syntax is Wine's standard "run inside a desktop" form (this is
+    // exactly what Winlator's own virtual-desktop option uses internally).
     wchar_t cmdLine[MAX_PATH * 2 + 256] = {0};
-    if (useExternal)
+    wchar_t* app;
+    if (a->useWineDesktop) {
+        app = L"C:\\windows\\system32\\explorer.exe";
+        swprintf_s(cmdLine, _countof(cmdLine),
+                   L"explorer.exe /desktop=WFM-ADAPTIVE,%dx%d \"%ls\" %ls",
+                   a->deskW > 0 ? a->deskW : 1280,
+                   a->deskH > 0 ? a->deskH : 720,
+                   a->target, a->extraArgs);
+    }
+    else if (useExternal) {
+        app = a->launcher;
         swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" \"%ls\" %ls",
                    a->launcher, a->target, a->extraArgs);
-    else
+    }
+    else {
+        app = a->target;
         swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" %ls",
                    a->target, a->extraArgs);
+    }
 
     STARTUPINFOW si;
     ZeroMemory(&si, sizeof(si));
@@ -1929,8 +1950,118 @@ static void launchWithArgs(const wchar_t* args) {
 void onMenuItemRunDX11Click(void) { launchWithArgs(L"-force-d3d11 -force-d3d11-singlethread"); }
 void onMenuItemRunD3D9Click(void) { launchWithArgs(L"-force-d3d9"); }
 void onMenuItemRunNoDebugClick(void) { launchWithArgs(L"-force-opengl"); }
-// Generic: windowed mode (works across Unity, Unreal, and many native games).
-void onMenuItemRunWindowedClick(void) { launchWithArgs(L"-windowed"); }
+
+// ============================================================================
+// Adaptive engine detection + launch (windowed / fullscreen with resolution).
+// Instead of engine-labelled menu entries, one entry auto-detects the engine
+// from the PE and applies that engine's official display flags; unknown
+// engines fall back to a Wine virtual desktop for generic windowed mode.
+// ============================================================================
+enum EngineKind { ENGINE_UNKNOWN = 0, ENGINE_UNITY = 1, ENGINE_UNREAL = 2 };
+
+// Scan the first 16 MiB of the executable for engine marker strings, both as
+// plain ASCII and UTF-16LE (PE string tables often store wide strings).
+static enum EngineKind detectGameEngine(const wchar_t* path) {
+    HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) return ENGINE_UNKNOWN;
+    BYTE buf[4 * 1024 * 1024];
+    DWORD rd;
+    ULONGLONG total = 0;
+    int flags = 0;
+    while (ReadFile(hFile, buf, sizeof(buf), &rd, NULL) && rd > 0) {
+        total += rd;
+        DWORD i;
+        for (i = 0; i + 15 < rd; i++) {
+            if (!(flags & 1)) {
+                if (memcmp(buf + i, "GameAssembly.dll", 16) == 0 ||
+                    memcmp(buf + i, "UnityPlayer.dll", 15) == 0 ||
+                    memcmp(buf + i, "Unity", 5) == 0 ||
+                    memcmp(buf + i, "U\0n\0i\0t\0y\0", 10) == 0)
+                    flags |= 1;
+            }
+            if (!(flags & 2)) {
+                if (memcmp(buf + i, "Unreal", 6) == 0 ||
+                    memcmp(buf + i, "U\0n\0r\0e\0a\0l\0", 12) == 0)
+                    flags |= 2;
+            }
+            if (flags == 3) break;
+        }
+        if (flags == 3 || total >= 16ULL * 1024 * 1024) break;
+    }
+    CloseHandle(hFile);
+    return flags == 2 ? ENGINE_UNREAL : (flags == 1 ? ENGINE_UNITY : ENGINE_UNKNOWN);
+}
+
+// Parse "WxH" (e.g. "1280x720"); 0/0 means native resolution.
+static void parseResolution(const wchar_t* s, int* w, int* h) {
+    *w = 0; *h = 0;
+    if (!s || !*s) return;
+    const wchar_t* x = wcschr(s, L'x');
+    if (!x) x = wcschr(s, L'X');
+    if (!x) return;
+    *w = _wtoi(s);
+    *h = _wtoi(x + 1);
+    if (*w <= 0 || *h <= 0) { *w = 0; *h = 0; }
+}
+
+// Launch with engine-adaptive display flags. fullscreen=false -> windowed.
+static void launchAdaptive(bool fullscreen) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    wchar_t path[MAX_PATH] = {0};
+    getFileNodePath(selectedItems[0], path);
+    enum EngineKind eng = detectGameEngine(path);
+
+    wchar_t* input = InputDialog(fullscreen ? lc_str.adaptive_fullscreen
+                                            : lc_str.adaptive_windowed,
+                                 lc_str.res_hint, L"1280x720", false);
+    int rw = 0, rh = 0;
+    if (input) { parseResolution(input, &rw, &rh); free(input); }
+
+    if (eng == ENGINE_UNITY) {
+        // Unity official display flags.
+        wchar_t args[256] = {0};
+        wcscpy_s(args, 256, fullscreen ? L"-screen-fullscreen 1" : L"-screen-fullscreen 0");
+        if (rw > 0 && rh > 0) {
+            wchar_t res[64];
+            swprintf_s(res, 64, L" -screen-width %d -screen-height %d", rw, rh);
+            wcscat_s(args, 256, res);
+        }
+        launchWithArgs(args);
+    }
+    else if (eng == ENGINE_UNREAL) {
+        // Unreal official display flags.
+        wchar_t args[256] = {0};
+        wcscpy_s(args, 256, fullscreen ? L"-fullscreen" : L"-windowed");
+        if (rw > 0 && rh > 0) {
+            wchar_t res[64];
+            swprintf_s(res, 64, L" -ResX=%d -ResY=%d", rw, rh);
+            wcscat_s(args, 256, res);
+        }
+        launchWithArgs(args);
+    }
+    else if (fullscreen) {
+        // Unknown engine fullscreen: plain launch (native behaviour).
+        launchWithArgs(L"");
+    }
+    else {
+        // Unknown engine windowed: generic Wine virtual desktop wrapper.
+        struct LauncherArg* a = (struct LauncherArg*)calloc(1, sizeof(struct LauncherArg));
+        if (!a) return;
+        wcscpy_s(a->target, MAX_PATH, path);
+        a->useExternal = false;
+        a->boostMode = -1;
+        a->useWineDesktop = true;
+        a->deskW = rw > 0 ? rw : 1280;
+        a->deskH = rh > 0 ? rh : 720;
+        HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
+        if (h) CloseHandle(h); else free(a);
+    }
+}
+
+void onMenuItemRunAdaptiveWClick(void) { launchAdaptive(false); }
+void onMenuItemRunAdaptiveFClick(void) { launchAdaptive(true); }
+
 // Custom: prompt the user for any command-line args (e.g. -screen-width 1920
 // -screen-height 1080 for custom resolution, or any engine-specific flags).
 void onMenuItemRunCustomClick(void) {
