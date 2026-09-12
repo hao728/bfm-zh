@@ -143,7 +143,9 @@ static inline void loadStrings_zh() {
     lc_str.arg_dx11 = L"DX11单线程(Unity)";
     lc_str.arg_d3d9 = L"强制DX9(Unity)";
     lc_str.arg_nodebug = L"强制OpenGL(Unity)";
-    lc_str.arg_windowed = L"窗口化运行";
+    lc_str.adaptive_windowed = L"自适应窗口化";
+    lc_str.adaptive_fullscreen = L"自适应全屏";
+    lc_str.res_hint = L"分辨率如1280x720，留空用原生";
     lc_str.arg_custom = L"自定义参数...";
     lc_str.copy_hash = L"复制哈希";
     lc_str.hash_sha256 = L"SHA256";

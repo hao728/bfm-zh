@@ -145,7 +145,9 @@ static inline void loadStrings_pt() {
     lc_str.arg_dx11 = L"DX11 mono-thread (Unity)";
     lc_str.arg_d3d9 = L"Forçar DX9 (Unity)";
     lc_str.arg_nodebug = L"Forçar OpenGL (Unity)";
-    lc_str.arg_windowed = L"Modo janela";
+    lc_str.adaptive_windowed = L"Janela adaptativa";
+    lc_str.adaptive_fullscreen = L"Tela cheia adaptativa";
+    lc_str.res_hint = L"Resolucao ex. 1280x720 (vazio = nativa)";
     lc_str.arg_custom = L"Args personalizados...";
     lc_str.copy_hash = L"Copiar hash";
     lc_str.hash_sha256 = L"SHA256";

@@ -145,7 +145,9 @@ static inline void loadStrings_en() {
     lc_str.arg_dx11 = L"DX11 single-thread (Unity)";
     lc_str.arg_d3d9 = L"Force DX9 (Unity)";
     lc_str.arg_nodebug = L"Force OpenGL (Unity)";
-    lc_str.arg_windowed = L"Windowed mode";
+    lc_str.adaptive_windowed = L"Adaptive windowed";
+    lc_str.adaptive_fullscreen = L"Adaptive fullscreen";
+    lc_str.res_hint = L"Resolution e.g. 1280x720 (blank = native)";
     lc_str.arg_custom = L"Custom args...";
     lc_str.copy_hash = L"Copy hash";
     lc_str.hash_sha256 = L"SHA256";

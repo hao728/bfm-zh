@@ -145,7 +145,9 @@ static inline void loadStrings_ru() {
     lc_str.arg_dx11 = L"DX11 однопоток (Unity)";
     lc_str.arg_d3d9 = L"Принуд. DX9 (Unity)";
     lc_str.arg_nodebug = L"Принуд. OpenGL (Unity)";
-    lc_str.arg_windowed = L"Оконный режим";
+    lc_str.adaptive_windowed = L"Адаптивное окно";
+    lc_str.adaptive_fullscreen = L"Адаптивный полный экран";
+    lc_str.res_hint = L"Разрешение напр. 1280x720 (пусто = родное)";
     lc_str.arg_custom = L"Свои аргументы...";
     lc_str.copy_hash = L"Копировать хэш";
     lc_str.hash_sha256 = L"SHA256";
