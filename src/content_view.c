@@ -1961,15 +1961,18 @@ enum EngineKind { ENGINE_UNKNOWN = 0, ENGINE_UNITY = 1, ENGINE_UNREAL = 2 };
 
 // Scan the first 16 MiB of the executable for engine marker strings, both as
 // plain ASCII and UTF-16LE (PE string tables often store wide strings).
+// Buffer is heap-allocated: a 1 MiB read chunk keeps the working set small and
+// avoids 4 MiB on the 1 MiB default thread stack (which crashed before).
 static enum EngineKind detectGameEngine(const wchar_t* path) {
     HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) return ENGINE_UNKNOWN;
-    BYTE buf[4 * 1024 * 1024];
+    BYTE* buf = (BYTE*)malloc(1 * 1024 * 1024);
+    if (!buf) { CloseHandle(hFile); return ENGINE_UNKNOWN; }
     DWORD rd;
     ULONGLONG total = 0;
     int flags = 0;
-    while (ReadFile(hFile, buf, sizeof(buf), &rd, NULL) && rd > 0) {
+    while (ReadFile(hFile, buf, 1 * 1024 * 1024, &rd, NULL) && rd > 0) {
         total += rd;
         DWORD i;
         for (i = 0; i + 15 < rd; i++) {
@@ -1989,6 +1992,7 @@ static enum EngineKind detectGameEngine(const wchar_t* path) {
         }
         if (flags == 3 || total >= 16ULL * 1024 * 1024) break;
     }
+    free(buf);
     CloseHandle(hFile);
     return flags == 2 ? ENGINE_UNREAL : (flags == 1 ? ENGINE_UNITY : ENGINE_UNKNOWN);
 }
@@ -3239,12 +3243,21 @@ static void onMenuItemExtractIconClick(void) {
     HDC hdc=GetDC(NULL);
     HDC memDC=CreateCompatibleDC(hdc);
     BITMAPINFO bi={0}; bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
-    bi.bmiHeader.biWidth=w; bi.bmiHeader.biHeight=h*2;
+    bi.bmiHeader.biWidth=w; bi.bmiHeader.biHeight=h;
     bi.bmiHeader.biPlanes=1; bi.bmiHeader.biBitCount=32; bi.bmiHeader.biCompression=BI_RGB;
     void* bits=NULL;
     HBITMAP hDib=CreateDIBSection(hdc,&bi,DIB_RGB_COLORS,&bits,NULL,0);
     HGDIOBJ old=SelectObject(memDC,hDib);
     DrawIconEx(memDC,0,0,sfi.hIcon,w,h,0,NULL,DI_NORMAL);
+    // Force full alpha. A 32bpp BI_RGB DIB keeps 0x00 alpha from the icon's
+    // ARGB mask, and Android/phone viewers treat alpha=0 as fully transparent
+    // (rendering a black thumbnail). Setting every alpha byte to 0xFF makes the
+    // saved BMP solid so both the phone gallery and wfm's own preview show it.
+    if (bits) {
+        DWORD px = (DWORD)w * (DWORD)h;
+        BYTE* p = (BYTE*)bits;
+        for (DWORD k = 0; k < px; k++) p[k * 4 + 3] = 0xFF;
+    }
     // Write BMP file
     wchar_t* name=wcsrchr(srcPath,L'\\'); name=name?name+1:srcPath;
     wchar_t* dot=wcsrchr(name,L'.');
@@ -3260,7 +3273,7 @@ static void onMenuItemExtractIconClick(void) {
         DWORD fileSize=54+imgSize;
         memcpy(hdr+2,&fileSize,4); hdr[10]=54;
         DWORD biSize=40; memcpy(hdr+14,&biSize,4);
-        memcpy(hdr+18,&w,4); int h2=h*2; memcpy(hdr+22,&h2,4);
+        memcpy(hdr+18,&w,4); memcpy(hdr+22,&h,4);
         short planes=1,bpp=32; memcpy(hdr+26,&planes,2); memcpy(hdr+28,&bpp,2);
         memcpy(hdr+34,&imgSize,4);
         WriteFile(hf,hdr,54,&wr,NULL);

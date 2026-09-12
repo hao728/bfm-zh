@@ -452,6 +452,36 @@ HFONT getUIFont(void) {
     return uiFont;
 }
 
+// ---------- Memory-boost progress tip ----------
+// A small centered always-on-top popup so the user sees the RAM-clearing phase
+// is running. Status-bar text alone was easy to miss once the launched game
+// window covers the main window.
+static HWND hBoostTip = NULL;
+static void hideBoostTip(void);
+
+static void showBoostTip(const wchar_t* text) {
+    hideBoostTip();
+    RECT rc;
+    GetClientRect(hwndMain, &rc);
+    int w = 420, h = 90;
+    int x = (rc.right - w) / 2;
+    int y = (rc.bottom - h) / 2;
+    hBoostTip = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"STATIC", text,
+        WS_POPUP | WS_VISIBLE | SS_CENTER | WS_BORDER, x, y, w, h,
+        hwndMain, NULL, globalHInstance, NULL);
+    if (hBoostTip) {
+        HFONT f = getUIFont();
+        if (f) SendMessageW(hBoostTip, WM_SETFONT, (WPARAM)f, TRUE);
+    }
+}
+
+static void hideBoostTip(void) {
+    if (hBoostTip) {
+        DestroyWindow(hBoostTip);
+        hBoostTip = NULL;
+    }
+}
+
 void GetWindowRectInParent(HWND hwnd, RECT* rect) {
     GetWindowRect(hwnd, rect);
     MapWindowPoints(HWND_DESKTOP, GetParent(hwnd), (LPPOINT)rect, 2);
@@ -1009,10 +1039,12 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             navigateRefresh();
             break;
         case WM_USER_BOOST_START:
-            setStatusbarText(L"正在清理内存，请稍候...");
+            setStatusbarText(lc_str.boost_working);
+            showBoostTip(lc_str.boost_working);
             break;
         case WM_USER_BOOST_DONE:
-            setStatusbarText(L"内存清理完成，正在启动...");
+            setStatusbarText(lc_str.boost_done);
+            hideBoostTip();
             break;
         case WM_SIZE: {
             resizeControls();
