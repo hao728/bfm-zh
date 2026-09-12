@@ -263,6 +263,10 @@ struct LC_STR {
     wchar_t* arg_dx11;
     wchar_t* arg_d3d9;
     wchar_t* arg_nodebug;
+    wchar_t* arg_ue_dx11;
+    wchar_t* arg_ue_dx12;
+    wchar_t* arg_windowed;
+    wchar_t* arg_borderless;
 };
 
 extern struct LC_STR lc_str;
