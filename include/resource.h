@@ -263,8 +263,10 @@ struct LC_STR {
     wchar_t* arg_dx11;
     wchar_t* arg_d3d9;
     wchar_t* arg_nodebug;
-    wchar_t* arg_windowed;
     wchar_t* arg_custom;
+    wchar_t* adaptive_windowed;
+    wchar_t* adaptive_fullscreen;
+    wchar_t* res_hint;
     wchar_t* copy_hash;
     wchar_t* hash_sha256;
     wchar_t* process_manager;
