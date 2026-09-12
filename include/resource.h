@@ -263,10 +263,11 @@ struct LC_STR {
     wchar_t* arg_dx11;
     wchar_t* arg_d3d9;
     wchar_t* arg_nodebug;
-    wchar_t* arg_ue_dx11;
-    wchar_t* arg_ue_dx12;
     wchar_t* arg_windowed;
-    wchar_t* arg_borderless;
+    wchar_t* arg_custom;
+    wchar_t* copy_hash;
+    wchar_t* hash_sha256;
+    wchar_t* process_manager;
 };
 
 extern struct LC_STR lc_str;
