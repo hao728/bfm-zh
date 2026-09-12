@@ -270,6 +270,8 @@ struct LC_STR {
     wchar_t* copy_hash;
     wchar_t* hash_sha256;
     wchar_t* process_manager;
+    wchar_t* boost_working;
+    wchar_t* boost_done;
 };
 
 extern struct LC_STR lc_str;
