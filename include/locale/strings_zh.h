@@ -152,6 +152,22 @@ static inline void loadStrings_zh() {
     lc_str.process_manager = L"进程管理器";
     lc_str.boost_working = L"正在清理内存，请稍候...";
     lc_str.boost_done = L"内存清理完成，正在启动...";
+    lc_str.err_open_file = L"无法打开文件";
+    lc_str.err_7z_missing = L"容器中未找到 7-Zip，请先安装 7z 或将其加入 PATH。";
+    lc_str.err_diff_read = L"读取文件失败，或文件过大（超过 2000 行）。";
+    lc_str.hash_copied_fmt = L"%ls 已复制到剪贴板：\n\n%ls";
+    lc_str.proc_kill = L"结束进程";
+    lc_str.proc_refresh = L"刷新";
+    lc_str.proc_close = L"关闭";
+    lc_str.cmp_summary_fmt = L"仅左侧：%d 项   仅右侧：%d 项   内容不同：%d 项";
+    lc_str.cmp_tag_left = L"[仅左]  ";
+    lc_str.cmp_tag_right = L"[仅右]  ";
+    lc_str.cmp_tag_changed = L"[不同]  ";
+    lc_str.cmp_no_diff = L"两个文件夹的内容完全相同。";
+    lc_str.x_drive_missing = L"未找到 X: 盘。请在 winecfg 中添加：驱动器 → 添加 → X:，路径指向 ../drive_x，类型设为 CD-ROM。";
+    lc_str.new_txt_name = L"新建文本文档.txt";
+    lc_str.diff_right_label = L"右侧";
+    lc_str.diff_left_label = L"左侧";
 }
 
 #endif

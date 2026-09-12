@@ -154,6 +154,22 @@ static inline void loadStrings_ru() {
     lc_str.process_manager = L"Диспетчер задач";
     lc_str.boost_working = L"Очистка памяти, подождите...";
     lc_str.boost_done = L"Память очищена, запуск...";
+    lc_str.err_open_file = L"Не удалось открыть файл";
+    lc_str.err_7z_missing = L"7-Zip не найден в контейнере. Установите 7z или добавьте его в PATH.";
+    lc_str.err_diff_read = L"Не удалось прочитать файлы, либо файлы слишком большие (>2000 строк).";
+    lc_str.hash_copied_fmt = L"%ls скопировано в буфер обмена:\n\n%ls";
+    lc_str.proc_kill = L"Завершить процесс";
+    lc_str.proc_refresh = L"Обновить";
+    lc_str.proc_close = L"Закрыть";
+    lc_str.cmp_summary_fmt = L"Только слева: %d   Только справа: %d   Изменено: %d";
+    lc_str.cmp_tag_left = L"[Л]  ";
+    lc_str.cmp_tag_right = L"[П] ";
+    lc_str.cmp_tag_changed = L"[Отл]  ";
+    lc_str.cmp_no_diff = L"Содержимое двух папок идентично.";
+    lc_str.x_drive_missing = L"Диск X: не найден. Добавьте его в winecfg: Диски -> Добавить -> X:, укажите ../drive_x и тип CD-ROM.";
+    lc_str.new_txt_name = L"Новый текстовый документ.txt";
+    lc_str.diff_right_label = L"Правый";
+    lc_str.diff_left_label = L"Левый";
 }
 
 #endif

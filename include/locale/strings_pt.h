@@ -154,6 +154,22 @@ static inline void loadStrings_pt() {
     lc_str.process_manager = L"Gerenciador de proc.";
     lc_str.boost_working = L"Limpando memoria, aguarde...";
     lc_str.boost_done = L"Memoria limpa, iniciando...";
+    lc_str.err_open_file = L"Nao foi possivel abrir o arquivo";
+    lc_str.err_7z_missing = L"7-Zip nao encontrado no container. Instale o 7z ou adicione-o ao PATH.";
+    lc_str.err_diff_read = L"Falha ao ler os arquivos, ou arquivos muito grandes (>2000 linhas).";
+    lc_str.hash_copied_fmt = L"%ls copiado para a area de transferencia:\n\n%ls";
+    lc_str.proc_kill = L"Encerrar processo";
+    lc_str.proc_refresh = L"Atualizar";
+    lc_str.proc_close = L"Fechar";
+    lc_str.cmp_summary_fmt = L"So na esquerda: %d   So na direita: %d   Diferentes: %d";
+    lc_str.cmp_tag_left = L"[E]  ";
+    lc_str.cmp_tag_right = L"[D] ";
+    lc_str.cmp_tag_changed = L"[Dif]  ";
+    lc_str.cmp_no_diff = L"As duas pastas contem arquivos identicos.";
+    lc_str.x_drive_missing = L"Unidade X: nao encontrada. Adicione no winecfg: Drives -> Add -> X:, aponte para ../drive_x e defina o tipo como CD-ROM.";
+    lc_str.new_txt_name = L"Novo Documento de Texto.txt";
+    lc_str.diff_right_label = L"Direita";
+    lc_str.diff_left_label = L"Esquerda";
 }
 
 #endif
