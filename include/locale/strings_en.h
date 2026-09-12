@@ -145,10 +145,11 @@ static inline void loadStrings_en() {
     lc_str.arg_dx11 = L"DX11 single-thread (Unity)";
     lc_str.arg_d3d9 = L"Force DX9 (Unity)";
     lc_str.arg_nodebug = L"Force OpenGL (Unity)";
-    lc_str.arg_ue_dx11 = L"UE: force DX11";
-    lc_str.arg_ue_dx12 = L"UE: force DX12";
     lc_str.arg_windowed = L"Windowed mode";
-    lc_str.arg_borderless = L"Borderless window";
+    lc_str.arg_custom = L"Custom args...";
+    lc_str.copy_hash = L"Copy hash";
+    lc_str.hash_sha256 = L"SHA256";
+    lc_str.process_manager = L"Process manager";
 }
 
 #endif

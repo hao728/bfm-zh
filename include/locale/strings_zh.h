@@ -143,10 +143,11 @@ static inline void loadStrings_zh() {
     lc_str.arg_dx11 = L"DX11单线程(Unity)";
     lc_str.arg_d3d9 = L"强制DX9(Unity)";
     lc_str.arg_nodebug = L"强制OpenGL(Unity)";
-    lc_str.arg_ue_dx11 = L"虚幻:强制DX11";
-    lc_str.arg_ue_dx12 = L"虚幻:强制DX12";
     lc_str.arg_windowed = L"窗口化运行";
-    lc_str.arg_borderless = L"无边框窗口";
+    lc_str.arg_custom = L"自定义参数...";
+    lc_str.copy_hash = L"复制哈希";
+    lc_str.hash_sha256 = L"SHA256";
+    lc_str.process_manager = L"进程管理器";
 }
 
 #endif
