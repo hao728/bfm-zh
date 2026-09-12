@@ -272,6 +272,23 @@ struct LC_STR {
     wchar_t* process_manager;
     wchar_t* boost_working;
     wchar_t* boost_done;
+    // v5.3 i18n completion: error prompts, process dialog, recursive compare
+    wchar_t* err_open_file;
+    wchar_t* err_7z_missing;
+    wchar_t* err_diff_read;
+    wchar_t* hash_copied_fmt;
+    wchar_t* proc_kill;
+    wchar_t* proc_refresh;
+    wchar_t* proc_close;
+    wchar_t* cmp_summary_fmt;
+    wchar_t* cmp_tag_left;
+    wchar_t* cmp_tag_right;
+    wchar_t* cmp_tag_changed;
+    wchar_t* cmp_no_diff;
+    wchar_t* x_drive_missing;
+    wchar_t* new_txt_name;
+    wchar_t* diff_right_label;
+    wchar_t* diff_left_label;
 };
 
 extern struct LC_STR lc_str;

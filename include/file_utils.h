@@ -43,8 +43,8 @@ static inline void formatFileSize(uint64_t size, wchar_t* formattedSize) {
     else wcscpy_s(formattedSize, 32, L"0 bytes");
 }
 
-static inline void getParentDirFromPath(wchar_t* path, wchar_t* result) {
-    wchar_t* lastSlash = wcsrchr(path, L'\\');
+static inline void getParentDirFromPath(const wchar_t* path, wchar_t* result) {
+    const wchar_t* lastSlash = wcsrchr(path, L'\\');
     int len = lastSlash ? lastSlash - path + 1 : 1;
 
     memcpy(result, path, (len - 1) * sizeof(wchar_t));
