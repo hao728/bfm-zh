@@ -257,6 +257,12 @@ struct LC_STR {
     wchar_t* extract_to_folder;
     wchar_t* shared_storage;
     wchar_t* diff_files;
+    // Dual-mode boost + launch arguments (Wine env overrides)
+    wchar_t* launcher_boost_aggressive;
+    wchar_t* run_with_args;
+    wchar_t* arg_dx11;
+    wchar_t* arg_d3d9;
+    wchar_t* arg_nodebug;
 };
 
 extern struct LC_STR lc_str;
