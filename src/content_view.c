@@ -1803,8 +1803,11 @@ static void launcherBoostMemory(int mode) {
     ms.dwLength = sizeof(ms);
     if (!GlobalMemoryStatusEx(&ms) || ms.ullTotalPhys == 0) return;
 
-    int targetPct = (mode == 1) ? 45 : 35;
-    SIZE_T absCap = (mode == 1) ? (SIZE_T)1536 * 1024 * 1024
+    // Balanced: 35% / 1 GB. Aggressive: 55% / 2 GB — enough to force Android's
+    // LMK to reclaim background apps before the game starts. Tuning beyond this
+    // risks the wine process group itself being OOM-killed (see safety floor).
+    int targetPct = (mode == 1) ? 55 : 35;
+    SIZE_T absCap = (mode == 1) ? (SIZE_T)2048 * 1024 * 1024
                                 : (SIZE_T)1024 * 1024 * 1024;
     SIZE_T totalToAlloc = (SIZE_T)(ms.ullTotalPhys * targetPct / 100);
     if (totalToAlloc > absCap) totalToAlloc = absCap;
@@ -1815,7 +1818,7 @@ static void launcherBoostMemory(int mode) {
     SYSTEM_INFO si; GetSystemInfo(&si);
     SIZE_T pageStep = si.dwPageSize ? si.dwPageSize : 4096;
 
-    SIZE_T bSize = 8 * 1024 * 1024;  // 8MB per chunk, halved on alloc failure
+    SIZE_T bSize = (mode == 1) ? 16 * 1024 * 1024 : 8 * 1024 * 1024;
     SIZE_T maxBlocks = totalToAlloc / (1024 * 1024) + 8;
     void** blocks = (void**)malloc(sizeof(void*) * maxBlocks);
     if (!blocks) return;
@@ -1844,13 +1847,12 @@ static void launcherBoostMemory(int mode) {
         Sleep(25);  // Box64 chunk interval from the fork
     }
 
-    if (count > 0) Sleep(500);  // hold briefly so LMK can select & kill victims
+    if (count > 0) Sleep((mode == 1) ? 800 : 500);  // hold so LMK picks victims
     for (int i = 0; i < count; i++) VirtualFree(blocks[i], 0, MEM_RELEASE);
     free(blocks);
 
-    // Aggressive mode also trims WFM's own working set to the minimum.
-    if (mode == 1)
-        SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
+    // Trim WFM's own working set (safe: WFM is idle during game launch).
+    SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
 }
 
 struct LauncherArg {
@@ -1862,40 +1864,6 @@ struct LauncherArg {
     bool useWineDesktop;     // true = wrap target in a Wine virtual desktop (generic windowed mode)
     int deskW, deskH;        // virtual desktop resolution (ignored unless useWineDesktop)
 };
-
-// After the game starts, shrink ITS working set (not just wfm's). Pre-launch
-// memory pressure only reclaims other Android apps; EmptyWorkingSet on the game
-// handle is what actually lowers the game's resident size shown by a task
-// monitor. It trims discardable pages, so we run it only twice during startup
-// (not continuously, which would cause reload stutter). Resolved dynamically so
-// no extra -lpsapi link flag is needed.
-struct GameTrimArg { HANDLE hProc; int aggressive; };
-static DWORD WINAPI gameTrimThread(LPVOID param) {
-    struct GameTrimArg* t = (struct GameTrimArg*)param;
-    if (!t || !t->hProc) { free(t); return 0; }
-    typedef BOOL (WINAPI *EmptyWS_t)(HANDLE);
-    static EmptyWS_t pEmpty = NULL;
-    static bool resolved = false;
-    if (!resolved) {
-        HMODULE k32 = GetModuleHandleW(L"kernel32.dll");
-        if (k32) pEmpty = (EmptyWS_t)(void*)GetProcAddress(k32, "K32EmptyWorkingSet");
-        resolved = true;
-    }
-    static const int balancedPass[2] = { 5000, 15000 };
-    static const int aggressivePass[4] = { 3000, 8000, 16000, 30000 };
-    const int* delays = t->aggressive ? aggressivePass : balancedPass;
-    int passes = t->aggressive ? 4 : 2;
-    for (int k = 0; k < passes; k++) {
-        Sleep(delays[k]);
-        if (WaitForSingleObject(t->hProc, 0) == WAIT_OBJECT_0) break;  // game exited
-        // Best-effort: minimize working set, then empty it.
-        SetProcessWorkingSetSize(t->hProc, (SIZE_T)-1, (SIZE_T)-1);
-        if (pEmpty) pEmpty(t->hProc);
-    }
-    CloseHandle(t->hProc);
-    free(t);
-    return 0;
-}
 
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
@@ -1949,23 +1917,11 @@ static DWORD WINAPI launcherThread(LPVOID param) {
                              targetDir[0] ? targetDir : NULL, &si, &pi);
     if (ok) {
         CloseHandle(pi.hThread);
-        // Boost launches also trim the GAME's own working set after startup
-        // (balanced twice, aggressive four times). Plain/argument launches are
-        // left untouched. Ownership of hProcess moves to the trim thread.
-        if (a->boostMode >= 0) {
-            struct GameTrimArg* t = (struct GameTrimArg*)malloc(sizeof(*t));
-            if (t) {
-                t->hProc = pi.hProcess;
-                t->aggressive = (a->boostMode == 1);
-                HANDLE ht = CreateThread(NULL, 0, gameTrimThread, t, 0, NULL);
-                if (ht) CloseHandle(ht);
-                else { CloseHandle(pi.hProcess); free(t); }
-            } else {
-                CloseHandle(pi.hProcess);
-            }
-        } else {
-            CloseHandle(pi.hProcess);
-        }
+        // Memory release must happen BEFORE the game starts, so the freed space
+        // is available for the game's own allocation burst. Trimming the game's
+        // working set after startup is pointless (Wine pages get re-faulted in
+        // immediately, which just causes stutter), so we never touch it here.
+        CloseHandle(pi.hProcess);
     }
     else {
         // Fallback for non-PE targets / association-based open.
@@ -2100,6 +2056,22 @@ static void parseResolution(const wchar_t* s, int* w, int* h) {
     if (*w <= 0 || *h <= 0) { *w = 0; *h = 0; }
 }
 
+// The Wine virtual desktop must stay SMALLER than the container screen, or the
+// game window (sized to the container resolution) gets cropped / overlaps the
+// container's own desktop. GetSystemMetrics reports the container resolution in
+// Wine; we default to 80% of it and clamp any user input to at most 90%.
+static void getSafeDesktopSize(int* w, int* h) {
+    int sw = GetSystemMetrics(SM_CXSCREEN);
+    int sh = GetSystemMetrics(SM_CYSCREEN);
+    if (sw <= 0) sw = 1280;
+    if (sh <= 0) sh = 720;
+    if (*w <= 0 || *h <= 0) { *w = sw * 80 / 100; *h = sh * 80 / 100; }
+    int maxW = sw * 90 / 100;
+    int maxH = sh * 90 / 100;
+    if (*w > maxW) *w = maxW;
+    if (*h > maxH) *h = maxH;
+}
+
 // Launch with engine-adaptive display flags. fullscreen=false -> windowed.
 static void launchAdaptive(bool fullscreen) {
     if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
@@ -2107,11 +2079,16 @@ static void launchAdaptive(bool fullscreen) {
     getFileNodePath(selectedItems[0], path);
     enum EngineKind eng = detectGameEngine(path);
 
+    wchar_t defaultRes[24];
+    int dW = 0, dH = 0;
+    getSafeDesktopSize(&dW, &dH);
+    swprintf_s(defaultRes, _countof(defaultRes), L"%dx%d", dW, dH);
     wchar_t* input = InputDialog(fullscreen ? lc_str.adaptive_fullscreen
                                             : lc_str.adaptive_windowed,
-                                 lc_str.res_hint, L"1280x720", false);
+                                 lc_str.res_hint, defaultRes, false);
     int rw = 0, rh = 0;
     if (input) { parseResolution(input, &rw, &rh); free(input); }
+    getSafeDesktopSize(&rw, &rh);  // fill 0s AND clamp to < container size
 
     if (eng == ENGINE_UNITY) {
         // Unity official display flags.
@@ -2147,8 +2124,8 @@ static void launchAdaptive(bool fullscreen) {
         a->useExternal = false;
         a->boostMode = -1;
         a->useWineDesktop = true;
-        a->deskW = rw > 0 ? rw : 1280;
-        a->deskH = rh > 0 ? rh : 720;
+        a->deskW = rw > 0 ? rw : 1024;
+        a->deskH = rh > 0 ? rh : 600;
         HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
         if (h) CloseHandle(h); else free(a);
     }

@@ -53,10 +53,11 @@ static HBITMAP createStarBitmap(void) {
 }
 
 // Bind the tree to a PRIVATE copy of the system small-icon image list. We
-// duplicate the shared list (preserving every system icon index used by
-// getFileInfo) and append one golden-star icon for the Favorites branch. This
-// keeps the real drive/folder icons intact while giving favorites a distinct
-// colored marker; it never modifies the process-wide shared system list.
+// rebuild the list by copying every system icon (indexes stay identical to the
+// system list, so getFileInfo() indexes still match) and append one golden-star
+// icon for the Favorites branch. Wine's ImageList_Duplicate can return an empty
+// list on some builds (all drive/folder icons vanished), so we copy icon by
+// icon instead — the copy never touches the process-wide shared system list.
 static void bindSystemImageList(void) {
     HIMAGELIST himlBig = NULL, himlSmall = NULL;
     HIMAGELIST sysList = NULL;
@@ -70,13 +71,24 @@ static void bindSystemImageList(void) {
     if (!sysList) return;
 
     if (!treeNormalList) {
-        treeNormalList = ImageList_Duplicate(sysList);
-        if (treeNormalList) {
-            HBITMAP star = createStarBitmap();
-            if (star) {
-                int idx = ImageList_AddMasked(treeNormalList, star, RGB(255, 0, 255));
-                if (idx >= 0) starIconIndex = idx;
-                DeleteObject(star);
+        int count = ImageList_GetImageCount(sysList);
+        if (count > 0) {
+            treeNormalList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK,
+                                              count + 2, 8);
+            if (treeNormalList) {
+                for (int i = 0; i < count; i++) {
+                    HICON h = ImageList_GetIcon(sysList, i, ILD_TRANSPARENT);
+                    if (h) {
+                        ImageList_AddIcon(treeNormalList, h);
+                        DestroyIcon(h);
+                    }
+                }
+                HBITMAP star = createStarBitmap();
+                if (star) {
+                    int idx = ImageList_AddMasked(treeNormalList, star, RGB(255, 0, 255));
+                    if (idx >= 0) starIconIndex = idx;
+                    DeleteObject(star);
+                }
             }
         }
     }
