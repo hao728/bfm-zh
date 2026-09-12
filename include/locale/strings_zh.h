@@ -150,6 +150,8 @@ static inline void loadStrings_zh() {
     lc_str.copy_hash = L"复制哈希";
     lc_str.hash_sha256 = L"SHA256";
     lc_str.process_manager = L"进程管理器";
+    lc_str.boost_working = L"正在清理内存，请稍候...";
+    lc_str.boost_done = L"内存清理完成，正在启动...";
 }
 
 #endif

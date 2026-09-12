@@ -152,6 +152,8 @@ static inline void loadStrings_pt() {
     lc_str.copy_hash = L"Copiar hash";
     lc_str.hash_sha256 = L"SHA256";
     lc_str.process_manager = L"Gerenciador de proc.";
+    lc_str.boost_working = L"Limpando memoria, aguarde...";
+    lc_str.boost_done = L"Memoria limpa, iniciando...";
 }
 
 #endif

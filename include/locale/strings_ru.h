@@ -152,6 +152,8 @@ static inline void loadStrings_ru() {
     lc_str.copy_hash = L"Копировать хэш";
     lc_str.hash_sha256 = L"SHA256";
     lc_str.process_manager = L"Диспетчер задач";
+    lc_str.boost_working = L"Очистка памяти, подождите...";
+    lc_str.boost_done = L"Память очищена, запуск...";
 }
 
 #endif
