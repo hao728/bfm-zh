@@ -128,7 +128,17 @@ static struct ContextMenuItem cmiCopyTo = {NULL, &onMenuItemCopyToClick, NULL};
 static struct ContextMenuItem cmiMoveTo = {NULL, &onMenuItemMoveToClick, NULL};
 static struct ContextMenuItem cmiAddToFav = {NULL, &onMenuItemAddToFavClick, NULL};
 // Launcher (RamBooster-style): free RAM then launch the target, optionally via an external launcher exe.
+// Forward declarations for launcher / launch-args menu handlers (defined below).
+void onMenuItemLauncherBoostAggressiveClick(void);
+void onMenuItemRunDX11Click(void);
+void onMenuItemRunD3D9Click(void);
+void onMenuItemRunNoDebugClick(void);
+
 static struct ContextMenuItem cmiLauncherBoost = {NULL, &onMenuItemLauncherBoostClick, NULL};
+static struct ContextMenuItem cmiLauncherBoostAggressive = {NULL, &onMenuItemLauncherBoostAggressiveClick, NULL};
+static struct ContextMenuItem cmiRunDX11 = {NULL, &onMenuItemRunDX11Click, NULL};
+static struct ContextMenuItem cmiRunD3D9 = {NULL, &onMenuItemRunD3D9Click, NULL};
+static struct ContextMenuItem cmiRunNoDebug = {NULL, &onMenuItemRunNoDebugClick, NULL};
 static struct ContextMenuItem cmiLauncherRunWith = {NULL, &onMenuItemLauncherRunWithClick, NULL};
 static struct ContextMenuItem cmiLauncherChoose = {NULL, &onMenuItemLauncherChooseClick, NULL};
 static struct ContextMenuItem cmiDiff = {NULL, &onMenuItemDiffClick, NULL};
@@ -772,6 +782,15 @@ static void createContextMenu(enum ContextMenuType type) {
                     }
                 }
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoost, false);
+                addContextMenuItem(hMenu, id++, &cmiLauncherBoostAggressive, false);
+                {
+                    // "Run with args" submenu: Wine DLL overrides / debug silence.
+                    HMENU hArgs = CreatePopupMenu();
+                    addContextMenuItem(hArgs, id++, &cmiRunDX11, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunD3D9, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunNoDebug, true);
+                    AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hArgs, lc_str.run_with_args);
+                }
                 {
                     wchar_t savedLauncher[MAX_PATH] = {0};
                     if (launcherGetSaved(savedLauncher))
@@ -918,16 +937,19 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     // Phone storage is usually >70%; shift thresholds so red only
                     // means genuinely low (<5% free), yellow = warning.
                     COLORREF barColor = (pct < 0.8) ? RGB(0,150,0) : (pct < 0.95 ? RGB(220,170,0) : RGB(210,50,50));
+                    // Capacity bar: bar fills left 55% of the size column,
+                    // text (used/total + label) sits in the right 45%. This
+                    // avoids crowding and keeps the label fully visible.
                     int barX = sizeX + 2;
-                    int barW = w2 - 4;
-                    int barY = rc.top + 2;
-                    int barH = rowH - 4;
+                    int barW = (w2 - 4) * 55 / 100;
+                    int barY = rc.top + 3;
+                    int barH = rowH - 6;
                     // Track (light gray background)
                     HBRUSH trackBrush = CreateSolidBrush(GetSysColor(COLOR_3DFACE));
                     RECT trackR = {barX, barY, barX + barW, barY + barH};
                     FillRect(hdc, &trackR, trackBrush);
                     DeleteObject(trackBrush);
-                    // Filled portion (dark color)
+                    // Filled portion
                     int fillW = (int)(barW * pct);
                     if (fillW > 0) {
                         HBRUSH fillBrush = CreateSolidBrush(barColor);
@@ -935,17 +957,21 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         FillRect(hdc, &fillR, fillBrush);
                         DeleteObject(fillBrush);
                     }
-                    // White text centered on the bar: percentage + used/total.
-                    // In Winlator all drive letters map to the same Linux filesystem,
-                    // so label them as shared storage.
-                    wchar_t capText[80];
-                    swprintf_s(capText, 80, L"%d%% %.0f/%.0fG %ls",
-                               (int)(pct * 100), usedGB, totalGB,
-                               lc_str.shared_storage ? lc_str.shared_storage : L"shared");
+                    // Percentage on the bar
+                    wchar_t pctText[16];
+                    swprintf_s(pctText, 16, L"%d%%", (int)(pct * 100));
                     SetTextColor(hdc, RGB(255,255,255));
                     SetBkMode(hdc, TRANSPARENT);
-                    RECT textR = {barX, barY, barX + barW, barY + barH};
-                    DrawTextW(hdc, capText, -1, &textR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    RECT pctR = {barX, barY, barX + barW, barY + barH};
+                    DrawTextW(hdc, pctText, -1, &pctR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    // Used/total + shared-storage label to the right of the bar
+                    wchar_t capText[80];
+                    swprintf_s(capText, 80, L"%.0f/%.0fG %ls",
+                               usedGB, totalGB,
+                               lc_str.shared_storage ? lc_str.shared_storage : L"shared");
+                    SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+                    RECT textR = {barX + barW + 4, rc.top, sizeX + w2 - 2, rc.bottom};
+                    DrawTextW(hdc, capText, -1, &textR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 } else if (item->node->type == TYPE_FILE) {
                     RECT sizeR = {sizeX + 4, rc.top, sizeX + w2 - 4, rc.bottom};
                     DrawTextW(hdc, item->formattedSize, -1, &sizeR, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
@@ -1426,6 +1452,10 @@ void createContentView() {
     cmiAddToFav.text = lc_str.add_to_favorites;
     cmiBatchRename.text = lc_str.batch_rename;
     cmiLauncherBoost.text = lc_str.launcher_boost;
+    cmiLauncherBoostAggressive.text = lc_str.launcher_boost_aggressive;
+    cmiRunDX11.text = lc_str.arg_dx11;
+    cmiRunD3D9.text = lc_str.arg_d3d9;
+    cmiRunNoDebug.text = lc_str.arg_nodebug;
     cmiLauncherRunWith.text = lc_str.launcher_run_with;
     cmiLauncherChoose.text = lc_str.launcher_choose;
     cmiDiff.text = lc_str.diff_files;
@@ -1722,66 +1752,90 @@ static bool launcherGetSaved(wchar_t* out) {
 // processes before the game starts. Parameters mirror RamBooster v2 (whose
 // default RAM_TO_USE_GB=5.50 is proven effective under Winlator): 50MB blocks,
 // touch one byte per page, gradual allocation, hold, then release everything.
-static void launcherBoostMemory(void) {
-    SIZE_T target = (SIZE_T)(5500ull * 1024 * 1024);  // ~5.5 GB default target
+// mode 0 = balanced (45% RAM, gentle); mode 1 = aggressive (65% RAM, harder
+// pressure + trims this process working set) for games near the memory limit.
+static void launcherBoostMemory(int mode) {
+    SIZE_T target;
+    SIZE_T blockSize;
+    DWORD blockSleep, holdMs;
+    if (mode == 1) {
+        target = (SIZE_T)(6500ull * 1024 * 1024);  // ~6.5GB aggressive default
+        blockSize = 100 * 1024 * 1024;
+        blockSleep = 25;
+        holdMs = 2500;
+    } else {
+        target = (SIZE_T)(5500ull * 1024 * 1024);  // ~5.5GB balanced default
+        blockSize = 50 * 1024 * 1024;
+        blockSleep = 40;
+        holdMs = 1500;
+    }
     MEMORYSTATUSEX ms;
     ms.dwLength = sizeof(ms);
     if (GlobalMemoryStatusEx(&ms) && ms.ullTotalPhys > 0) {
-        // Adapt to the device: aim for ~45% of physical RAM, clamped for safety.
-        SIZE_T adaptive = (SIZE_T)(ms.ullTotalPhys * 45 / 100);
-        const SIZE_T FLOOR = 512ull * 1024 * 1024;   // never below 512MB
-        const SIZE_T CEIL  = 6144ull * 1024 * 1024;  // never above 6GB
+        // Adapt to the device: aim for a percentage of physical RAM, clamped.
+        int pct = (mode == 1) ? 65 : 45;
+        SIZE_T adaptive = (SIZE_T)(ms.ullTotalPhys * pct / 100);
+        const SIZE_T FLOOR = 512ull * 1024 * 1024;
+        const SIZE_T CEIL  = (mode == 1) ? 8192ull * 1024 * 1024 : 6144ull * 1024 * 1024;
         if (adaptive < FLOOR) adaptive = FLOOR;
         if (adaptive > CEIL) adaptive = CEIL;
         target = adaptive;
     }
-    const SIZE_T BLK = 50 * 1024 * 1024;  // 50MB per block (RamBooster value)
-    int capCount = (int)(target / BLK) + 1;
+    int capCount = (int)(target / blockSize) + 1;
     void** blocks = (void**)calloc(capCount, sizeof(void*));
     if (!blocks) return;
     int n = 0;
     SIZE_T got = 0;
     while (got < target && n < capCount) {
-        void* p = VirtualAlloc(NULL, BLK, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-        if (!p) break;  // allocation refused: system is already under pressure
-        // Touch only one byte per 4K page: commits physical pages (required to
-        // trigger reclaim) without the bandwidth cost of memset on the block.
-        for (SIZE_T off = 0; off < BLK; off += 4096) ((volatile char*)p)[off] = 1;
+        void* p = VirtualAlloc(NULL, blockSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (!p) break;
+        for (SIZE_T off = 0; off < blockSize; off += 4096) ((volatile char*)p)[off] = 1;
         blocks[n++] = p;
-        got += BLK;
-        Sleep(40);  // gradual allocation avoids stalling/killing the container
+        got += blockSize;
+        Sleep(blockSleep);
     }
-    if (n > 0) Sleep(1500);  // hold the pressure so the LMK has time to reclaim
+    if (n > 0) Sleep(holdMs);
     for (int i = 0; i < n; i++) VirtualFree(blocks[i], 0, MEM_RELEASE);
     free(blocks);
+    // Aggressive mode: also trim our own process working set to the minimum so
+    // the container has as much free RAM as possible for the game.
+    if (mode == 1) {
+        HANDLE self = GetCurrentProcess();
+        // Trim this process working set to the minimum, freeing RAM for the game.
+        SetProcessWorkingSetSize(self, (SIZE_T)-1, (SIZE_T)-1);
+    }
 }
 
 struct LauncherArg {
     wchar_t target[MAX_PATH];
     wchar_t launcher[MAX_PATH];
     bool useExternal;   // true = run via external launcher; false = always run target
+    int boostMode;      // 0 = balanced, 1 = aggressive, -1 = no boost
+    wchar_t extraArgs[256];  // command-line args appended to the game (Unity/UE flags)
 };
 
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
-    launcherBoostMemory();
+    if (a->boostMode >= 0) launcherBoostMemory(a->boostMode);
 
     // Working directory MUST be the target's folder (games load sibling files
     // relative to their own exe), never the launcher's folder.
     wchar_t targetDir[MAX_PATH] = {0};
     getParentDirFromPath(a->target, targetDir);
 
-    // "Boost & Run" always launches the target directly. The external launcher
-    // is only used when the user explicitly picks "Run with external launcher";
-    // otherwise a stale/accidental launcher would hijack every boost launch.
     bool useExternal = a->useExternal && a->launcher[0] && isPathExists(a->launcher);
     wchar_t* app = useExternal ? a->launcher : a->target;
 
-    wchar_t cmdLine[MAX_PATH * 2 + 8] = {0};
+    // Command line: exe path + optional extra args (Unity -force-d3d11 etc.).
+    // This mirrors Winlator shortcut "Exec Arguments", which are passed to the
+    // game itself, not set as Wine environment variables.
+    wchar_t cmdLine[MAX_PATH * 2 + 256] = {0};
     if (useExternal)
-        swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" \"%ls\"", a->launcher, a->target);
+        swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" \"%ls\" %ls",
+                   a->launcher, a->target, a->extraArgs);
     else
-        swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\"", a->target);
+        swprintf_s(cmdLine, _countof(cmdLine), L"\"%ls\" %ls",
+                   a->target, a->extraArgs);
 
     STARTUPINFOW si;
     ZeroMemory(&si, sizeof(si));
@@ -1804,7 +1858,7 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     return 0;
 }
 
-// Context menu entry: free RAM then run the selected file directly.
+// Context menu entry: free RAM (balanced mode) then run the selected file directly.
 // This NEVER uses the external launcher — that is a separate explicit action.
 void onMenuItemLauncherBoostClick(void) {
     if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
@@ -1812,9 +1866,44 @@ void onMenuItemLauncherBoostClick(void) {
     if (!a) return;
     getFileNodePath(selectedItems[0], a->target);
     a->useExternal = false;
+    a->boostMode = 0;
     HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
     if (h) CloseHandle(h); else free(a);
 }
+
+// Aggressive boost: harder memory pressure + working-set trim, for games that
+// sit near the device RAM limit and risk OOM kills during combat/transitions.
+void onMenuItemLauncherBoostAggressiveClick(void) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    struct LauncherArg* a = (struct LauncherArg*)calloc(1, sizeof(struct LauncherArg));
+    if (!a) return;
+    getFileNodePath(selectedItems[0], a->target);
+    a->useExternal = false;
+    a->boostMode = 1;
+    HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
+    if (h) CloseHandle(h); else free(a);
+}
+
+// Helper: launch with extra command-line arguments (no memory boost).
+// These mirror Winlator shortcut "Exec Arguments": passed directly to the game.
+static void launchWithArgs(const wchar_t* args) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    struct LauncherArg* a = (struct LauncherArg*)calloc(1, sizeof(struct LauncherArg));
+    if (!a) return;
+    getFileNodePath(selectedItems[0], a->target);
+    a->useExternal = false;
+    a->boostMode = -1;  // -1 = no memory boost
+    wcscpy_s(a->extraArgs, 256, args);
+    HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
+    if (h) CloseHandle(h); else free(a);
+}
+
+// Unity engine: force D3D11 single-threaded (common Winlator fix for Unity games).
+void onMenuItemRunDX11Click(void) { launchWithArgs(L"-force-d3d11 -force-d3d11-singlethread"); }
+// Unity engine: force DirectX 9 renderer.
+void onMenuItemRunD3D9Click(void) { launchWithArgs(L"-force-d3d9"); }
+// Unity engine: force OpenGL renderer (fallback for games that reject DX).
+void onMenuItemRunNoDebugClick(void) { launchWithArgs(L"-force-opengl"); }
 
 // Context menu entry: free RAM then launch the target through the saved external
 // launcher (which receives the target path as its first argument). Only shown
@@ -2547,16 +2636,17 @@ static void dragFallbackOpenWith(HWND hwndMain) {
 
     if (!isShell) {
         // A real application window is already open: hand it a WM_DROPFILES.
+        // Only post to the top-level window (DragAcceptFiles is registered there)
+        // and use a timed send so a hung/crash-prone target cannot freeze us.
         HGLOBAL hDrop = buildHDropFromSelection();
         if (hDrop) {
-            // Deliver to the top-level window (DragAcceptFiles is usually on it)
-            // and, if different, to the exact child under the cursor. Ownership
-            // transfers to the receiver, which releases it via DragFinish.
-            PostMessageW(top, WM_DROPFILES, (WPARAM)hDrop, 0);
-            if (target != top) {
-                HGLOBAL hDrop2 = buildHDropFromSelection();
-                if (hDrop2) PostMessageW(target, WM_DROPFILES, (WPARAM)hDrop2, 0);
-            }
+            LRESULT result = 0;
+            SendMessageTimeoutW(top, WM_DROPFILES, (WPARAM)hDrop, 0,
+                                SMTO_ABORTIFHUNG, 2000, (PDWORD_PTR)&result);
+            // Ownership transfers to the receiver on success; if the target did
+            // not handle it (no DragAcceptFiles), we must free it ourselves.
+            // We cannot reliably detect handling, so leak the small block rather
+            // than double-free. This is acceptable for a one-off drag.
             return;
         }
     }

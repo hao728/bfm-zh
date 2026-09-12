@@ -55,7 +55,14 @@ static void ensureFavImageList(void) {
     if (favCustomHiml) return;
     HIMAGELIST himlBig, himlSmall;
     Shell_GetImageLists(&himlBig, &himlSmall);
-    if (!himlSmall) return;  // Wine without system list: keep defaults.
+    // Wine may leave himlSmall NULL; fall back to SHGetFileInfo which reliably
+    // returns the system small-icon list under Wine.
+    if (!himlSmall) {
+        SHFILEINFO sfi = {0};
+        himlSmall = (HIMAGELIST)SHGetFileInfo(L"", 0, &sfi, sizeof(SHFILEINFO),
+                        SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+    }
+    if (!himlSmall) return;
     int count = ImageList_GetImageCount(himlSmall);
     favCustomHiml = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, count + 1, 1);
     if (!favCustomHiml) return;
@@ -77,10 +84,11 @@ static void ensureFavImageList(void) {
 static void insertFavoritesBranch(void) {
     ensureFavImageList();
 
-    // Root node uses the golden star icon if available, else folder icon.
+    // Root node uses a normal folder icon (not the star) so it is visually
+    // distinct from the starred favorite items below it.
     struct FileInfo rootFi = {0};
     getFileInfo(L"C:\\", TYPE_DIR, false, &rootFi);
-    int rootIcon = (favStarIndex >= 0) ? favStarIndex : rootFi.icon;
+    int rootIcon = rootFi.icon;
 
     TVINSERTSTRUCT tvis = {0};
     tvis.hParent = NULL;
