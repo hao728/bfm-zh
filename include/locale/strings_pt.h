@@ -145,6 +145,10 @@ static inline void loadStrings_pt() {
     lc_str.arg_dx11 = L"DX11 mono-thread (Unity)";
     lc_str.arg_d3d9 = L"Forçar DX9 (Unity)";
     lc_str.arg_nodebug = L"Forçar OpenGL (Unity)";
+    lc_str.arg_ue_dx11 = L"UE: forçar DX11";
+    lc_str.arg_ue_dx12 = L"UE: forçar DX12";
+    lc_str.arg_windowed = L"Modo janela";
+    lc_str.arg_borderless = L"Janela s/ borda";
 }
 
 #endif

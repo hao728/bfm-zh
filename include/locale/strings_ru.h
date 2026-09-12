@@ -145,6 +145,10 @@ static inline void loadStrings_ru() {
     lc_str.arg_dx11 = L"DX11 однопоток (Unity)";
     lc_str.arg_d3d9 = L"Принуд. DX9 (Unity)";
     lc_str.arg_nodebug = L"Принуд. OpenGL (Unity)";
+    lc_str.arg_ue_dx11 = L"UE: принуд. DX11";
+    lc_str.arg_ue_dx12 = L"UE: принуд. DX12";
+    lc_str.arg_windowed = L"Оконный режим";
+    lc_str.arg_borderless = L"Окно без рамки";
 }
 
 #endif
