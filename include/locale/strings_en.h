@@ -140,6 +140,11 @@ static inline void loadStrings_en() {
     lc_str.extract_to_folder = L"Extract to folder";
     lc_str.shared_storage = L"shared";
     lc_str.diff_files = L"Compare files";
+    lc_str.launcher_boost_aggressive = L"Aggressive boost & run";
+    lc_str.run_with_args = L"Run with args";
+    lc_str.arg_dx11 = L"DX11 single-thread (Unity)";
+    lc_str.arg_d3d9 = L"Force DX9 (Unity)";
+    lc_str.arg_nodebug = L"Force OpenGL (Unity)";
 }
 
 #endif

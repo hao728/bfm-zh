@@ -138,8 +138,13 @@ static inline void loadStrings_pt() {
     lc_str.preview_pane = L"Painel de visualizacao";
     lc_str.extract_here = L"Extrair aqui";
     lc_str.extract_to_folder = L"Extrair para pasta";
-    lc_str.shared_storage = L"comum";
+    lc_str.shared_storage = L"compartilhado";
     lc_str.diff_files = L"Comparar arquivos";
+    lc_str.launcher_boost_aggressive = L"Boost agressivo";
+    lc_str.run_with_args = L"Executar com args";
+    lc_str.arg_dx11 = L"DX11 mono-thread (Unity)";
+    lc_str.arg_d3d9 = L"Forçar DX9 (Unity)";
+    lc_str.arg_nodebug = L"Forçar OpenGL (Unity)";
 }
 
 #endif

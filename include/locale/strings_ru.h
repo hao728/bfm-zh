@@ -140,6 +140,11 @@ static inline void loadStrings_ru() {
     lc_str.extract_to_folder = L"\u0418\u0437\u0432\u043b\u0435\u0447\u044c \u0432 \u043f\u0430\u043f\u043a\u0443";
     lc_str.shared_storage = L"\u043e\u0431\u0449\u0438\u0439";
     lc_str.diff_files = L"\u0421\u0440\u0430\u0432\u043d\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b";
+    lc_str.launcher_boost_aggressive = L"Агрессивный буст";
+    lc_str.run_with_args = L"Запуск с аргументами";
+    lc_str.arg_dx11 = L"DX11 однопоток (Unity)";
+    lc_str.arg_d3d9 = L"Принуд. DX9 (Unity)";
+    lc_str.arg_nodebug = L"Принуд. OpenGL (Unity)";
 }
 
 #endif

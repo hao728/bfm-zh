@@ -136,8 +136,13 @@ static inline void loadStrings_zh() {
     lc_str.preview_pane = L"\u9884\u89c8\u7a97\u683c";
     lc_str.extract_here = L"\u89e3\u538b\u5230\u5f53\u524d\u6587\u4ef6\u5939";
     lc_str.extract_to_folder = L"\u89e3\u538b\u5230\u6307\u5b9a\u6587\u4ef6\u5939";
-    lc_str.shared_storage = L"\u5171\u4eab";
+    lc_str.shared_storage = L"\u5171\u4eab\u5b58\u50a8";
     lc_str.diff_files = L"\u6bd4\u8f83\u6587\u4ef6";
+    lc_str.launcher_boost_aggressive = L"激进加速运行";
+    lc_str.run_with_args = L"以参数启动";
+    lc_str.arg_dx11 = L"DX11单线程(Unity)";
+    lc_str.arg_d3d9 = L"强制DX9(Unity)";
+    lc_str.arg_nodebug = L"强制OpenGL(Unity)";
 }
 
 #endif
