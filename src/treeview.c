@@ -16,76 +16,26 @@ static bool isFavItem(LONG_PTR p, int* outIdx) {
 }
 
 static HTREEITEM favRootItem = NULL;
-static HIMAGELIST favCustomHiml = NULL;
-static int favStarIndex = -1;
 
-// Create a 16x16 golden star bitmap (magenta = transparent mask).
-static HBITMAP createStarBitmap(void) {
-    HDC hdcScreen = GetDC(NULL);
-    HDC hdcMem = CreateCompatibleDC(hdcScreen);
-    HBITMAP hbmp = CreateCompatibleBitmap(hdcScreen, 16, 16);
-    HBITMAP oldBmp = (HBITMAP)SelectObject(hdcMem, hbmp);
-    HBRUSH bg = CreateSolidBrush(RGB(255, 0, 255));
-    RECT rc = {0, 0, 16, 16};
-    FillRect(hdcMem, &rc, bg);
-    DeleteObject(bg);
-    // 10-point star polygon (concave).
-    POINT pts[10] = {
-        {8, 0}, {10, 6}, {16, 6}, {11, 10}, {13, 15},
-        {8, 12}, {3, 15}, {5, 10}, {0, 6}, {6, 6}
-    };
-    HBRUSH fill = CreateSolidBrush(RGB(255, 193, 7));   // golden yellow
-    HPEN border = CreatePen(PS_SOLID, 1, RGB(180, 120, 0)); // dark amber outline
-    HBRUSH oldBrush = (HBRUSH)SelectObject(hdcMem, fill);
-    HPEN oldPen = (HPEN)SelectObject(hdcMem, border);
-    Polygon(hdcMem, pts, 10);
-    SelectObject(hdcMem, oldBrush);
-    SelectObject(hdcMem, oldPen);
-    DeleteObject(fill);
-    DeleteObject(border);
-    SelectObject(hdcMem, oldBmp);
-    DeleteDC(hdcMem);
-    ReleaseDC(NULL, hdcScreen);
-    return hbmp;
-}
-
-// Build a custom image list: copy all system small icons, then append the star.
-// This keeps drive/folder icon indices valid while giving favorites a distinct icon.
-static void ensureFavImageList(void) {
-    if (favCustomHiml) return;
+// Bind the tree to the shared system small-icon image list. Icon indices come
+// from SHGetFileInfo(SHGFI_SYSICONINDEX) / getFileInfo, which index into this
+// same list. We use the system list directly (never copy it) because Wine's
+// ImageList_GetIcon/AddIcon copy path is unreliable and produced blank icons.
+static void bindSystemImageList(void) {
     HIMAGELIST himlBig, himlSmall;
-    Shell_GetImageLists(&himlBig, &himlSmall);
-    // Wine may leave himlSmall NULL; fall back to SHGetFileInfo which reliably
-    // returns the system small-icon list under Wine.
-    if (!himlSmall) {
-        SHFILEINFO sfi = {0};
-        himlSmall = (HIMAGELIST)SHGetFileInfo(L"", 0, &sfi, sizeof(SHFILEINFO),
+    if (Shell_GetImageLists(&himlBig, &himlSmall) && himlSmall) {
+        TreeView_SetImageList(hwndTreeview, himlSmall, TVSIL_NORMAL);
+        return;
+    }
+    // Fallback: SHGetFileInfo also returns the system small-icon list.
+    SHFILEINFO sfi = {0};
+    HIMAGELIST h = (HIMAGELIST)SHGetFileInfo(L"", 0, &sfi, sizeof(SHFILEINFO),
                         SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
-    }
-    if (!himlSmall) return;
-    int count = ImageList_GetImageCount(himlSmall);
-    favCustomHiml = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, count + 1, 1);
-    if (!favCustomHiml) return;
-    for (int i = 0; i < count; i++) {
-        HICON hIcon = ImageList_GetIcon(himlSmall, i, ILD_TRANSPARENT);
-        if (hIcon) {
-            ImageList_AddIcon(favCustomHiml, hIcon);
-            DestroyIcon(hIcon);
-        }
-    }
-    HBITMAP star = createStarBitmap();
-    if (star) {
-        favStarIndex = ImageList_AddMasked(favCustomHiml, star, RGB(255, 0, 255));
-        DeleteObject(star);
-    }
-    TreeView_SetImageList(hwndTreeview, favCustomHiml, TVSIL_NORMAL);
+    if (h) TreeView_SetImageList(hwndTreeview, h, TVSIL_NORMAL);
 }
 
 static void insertFavoritesBranch(void) {
-    ensureFavImageList();
-
-    // Root node uses a normal folder icon (not the star) so it is visually
-    // distinct from the starred favorite items below it.
+    // Root node uses a normal folder icon.
     struct FileInfo rootFi = {0};
     getFileInfo(L"C:\\", TYPE_DIR, false, &rootFi);
     int rootIcon = rootFi.icon;
@@ -118,14 +68,16 @@ static void insertFavoritesBranch(void) {
         ci.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
         const wchar_t* name = wcsrchr(favs[i], L'\\');
         name = name ? name + 1 : favs[i];
-        ci.itemex.pszText = (LPWSTR)name;
-        ci.itemex.cchTextMax = wcslen(name);
+        // Prefix with a star char so favorites are distinguishable without a
+        // custom image list (which broke system icons under Wine).
+        static wchar_t labeled[MAX_PATH + 4];
+        swprintf_s(labeled, _countof(labeled), L"\u2605 %ls", name);
+        ci.itemex.pszText = labeled;
+        ci.itemex.cchTextMax = wcslen(labeled);
         ci.itemex.lParam = (LPARAM)(FAV_ITEM_MARK - i);
-        // All favorites share the star; fall back to the real file/folder icon
-        // only if the custom image list was unavailable.
-        int itemIcon = (favStarIndex >= 0) ? favStarIndex : fi.icon;
-        ci.itemex.iImage = itemIcon;
-        ci.itemex.iSelectedImage = itemIcon;
+        // Real file/folder icon from the system image list.
+        ci.itemex.iImage = fi.icon;
+        ci.itemex.iSelectedImage = fi.icon;
         TreeView_InsertItem(hwndTreeview, &ci);
     }
 
@@ -153,9 +105,8 @@ static void updateTreeItemsDeep(HTREEITEM parentItem, struct FileNode* parentNod
         if (getFileNodePath(parentNode, parentPath)) wcscat_s(parentPath, MAX_PATH, L"\\");
         wchar_t path[MAX_PATH] = {0};
 
-        // NOTE: do NOT TreeView_SetImageList here. The tree uses a single custom
-        // image list (system icons + favorites star) created by ensureFavImageList;
-        // resetting it to the raw system list would erase the star icon.
+        // The tree is bound to the system image list in updateTreeItems;
+        // do not reset it here or icons will vanish on expand/refresh.
 
         struct FileNode* node = parentNode->children;
         do {
@@ -182,8 +133,8 @@ static void updateTreeItemsDeep(HTREEITEM parentItem, struct FileNode* parentNod
 
 static void updateTreeItems() {
     TreeView_DeleteAllItems(hwndTreeview);
-    // Single shared image list for the whole tree (system icons + favorites star).
-    ensureFavImageList();
+    // Bind directly to the system small-icon list (never copy it).
+    bindSystemImageList();
 
     TVINSERTSTRUCT tvis;
     tvis.hParent = NULL;

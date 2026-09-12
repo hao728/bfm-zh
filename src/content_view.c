@@ -133,12 +133,20 @@ void onMenuItemLauncherBoostAggressiveClick(void);
 void onMenuItemRunDX11Click(void);
 void onMenuItemRunD3D9Click(void);
 void onMenuItemRunNoDebugClick(void);
+void onMenuItemRunUEDX11Click(void);
+void onMenuItemRunUEDX12Click(void);
+void onMenuItemRunWindowedClick(void);
+void onMenuItemRunBorderlessClick(void);
 
 static struct ContextMenuItem cmiLauncherBoost = {NULL, &onMenuItemLauncherBoostClick, NULL};
 static struct ContextMenuItem cmiLauncherBoostAggressive = {NULL, &onMenuItemLauncherBoostAggressiveClick, NULL};
 static struct ContextMenuItem cmiRunDX11 = {NULL, &onMenuItemRunDX11Click, NULL};
 static struct ContextMenuItem cmiRunD3D9 = {NULL, &onMenuItemRunD3D9Click, NULL};
 static struct ContextMenuItem cmiRunNoDebug = {NULL, &onMenuItemRunNoDebugClick, NULL};
+static struct ContextMenuItem cmiRunUEDX11 = {NULL, &onMenuItemRunUEDX11Click, NULL};
+static struct ContextMenuItem cmiRunUEDX12 = {NULL, &onMenuItemRunUEDX12Click, NULL};
+static struct ContextMenuItem cmiRunWindowed = {NULL, &onMenuItemRunWindowedClick, NULL};
+static struct ContextMenuItem cmiRunBorderless = {NULL, &onMenuItemRunBorderlessClick, NULL};
 static struct ContextMenuItem cmiLauncherRunWith = {NULL, &onMenuItemLauncherRunWithClick, NULL};
 static struct ContextMenuItem cmiLauncherChoose = {NULL, &onMenuItemLauncherChooseClick, NULL};
 static struct ContextMenuItem cmiDiff = {NULL, &onMenuItemDiffClick, NULL};
@@ -745,6 +753,14 @@ static void createOpenWithMenu(int* id) {
         sep.fType = MFT_SEPARATOR;
         InsertMenuItem(hSubmenu, -1, TRUE, &sep);
     }
+    // Merge the external-launcher actions into this submenu so every "run via
+    // another program" choice lives in one place instead of duplicating items.
+    {
+        wchar_t savedLauncher[MAX_PATH] = {0};
+        if (launcherGetSaved(savedLauncher))
+            addContextMenuItem(hSubmenu, (*id)++, &cmiLauncherRunWith, false);
+        addContextMenuItem(hSubmenu, (*id)++, &cmiLauncherChoose, count > 0);
+    }
     addContextMenuItem(hSubmenu, (*id)++, &cmiChooseProgram, false);
 
     MENUITEMINFO item = {0};
@@ -784,19 +800,17 @@ static void createContextMenu(enum ContextMenuType type) {
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoost, false);
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoostAggressive, false);
                 {
-                    // "Run with args" submenu: Wine DLL overrides / debug silence.
+                    // "Run with args" submenu: Unity / Unreal / generic flags.
                     HMENU hArgs = CreatePopupMenu();
                     addContextMenuItem(hArgs, id++, &cmiRunDX11, false);
                     addContextMenuItem(hArgs, id++, &cmiRunD3D9, false);
                     addContextMenuItem(hArgs, id++, &cmiRunNoDebug, true);
+                    addContextMenuItem(hArgs, id++, &cmiRunUEDX11, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunUEDX12, true);
+                    addContextMenuItem(hArgs, id++, &cmiRunWindowed, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunBorderless, true);
                     AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hArgs, lc_str.run_with_args);
                 }
-                {
-                    wchar_t savedLauncher[MAX_PATH] = {0};
-                    if (launcherGetSaved(savedLauncher))
-                        addContextMenuItem(hMenu, id++, &cmiLauncherRunWith, false);
-                }
-                addContextMenuItem(hMenu, id++, &cmiLauncherChoose, true);
                 createOpenWithMenu(&id);
                 addContextMenuItem(hMenu, id++, &cmiEdit, true);
                 createCDDriveContextMenu(&id);
@@ -1456,6 +1470,10 @@ void createContentView() {
     cmiRunDX11.text = lc_str.arg_dx11;
     cmiRunD3D9.text = lc_str.arg_d3d9;
     cmiRunNoDebug.text = lc_str.arg_nodebug;
+    cmiRunUEDX11.text = lc_str.arg_ue_dx11;
+    cmiRunUEDX12.text = lc_str.arg_ue_dx12;
+    cmiRunWindowed.text = lc_str.arg_windowed;
+    cmiRunBorderless.text = lc_str.arg_borderless;
     cmiLauncherRunWith.text = lc_str.launcher_run_with;
     cmiLauncherChoose.text = lc_str.launcher_choose;
     cmiDiff.text = lc_str.diff_files;
@@ -1745,65 +1763,67 @@ static bool launcherGetSaved(wchar_t* out) {
     return (out[0] != L'\0' && isPathExists(out));
 }
 
-// Apply memory pressure in small committed/touched blocks so the OS (and Android LMK under
-// Wine) reclaims background working sets, then release everything. Conservative cap keeps
-// WFM itself alive: min(10% physical RAM, 384 MB). Mirrors RamBooster's VirtualAlloc trick.
-// Apply memory pressure so Android's low-memory killer reclaims background
-// processes before the game starts. Parameters mirror RamBooster v2 (whose
-// default RAM_TO_USE_GB=5.50 is proven effective under Winlator): 50MB blocks,
-// touch one byte per page, gradual allocation, hold, then release everything.
-// mode 0 = balanced (45% RAM, gentle); mode 1 = aggressive (65% RAM, harder
-// pressure + trims this process working set) for games near the memory limit.
+// Apply memory pressure so Android's LMK reclaims background processes before
+// the game starts. Parameters follow Noysz/RamBooster-Winlator v1.2.2 (the tuned
+// Winlator fork), NOT the 5.5GB upstream single-file version: 8MB chunks that
+// halve on failure, touch every real page, a dynamic safety floor (keep 12% of
+// physical RAM free so the container never kills itself), and a hard absolute
+// cap (1GB balanced / 1.5GB aggressive) — 45% of an 8GB phone = 3.6GB would
+// stall ~13s, which the fork explicitly fixed by capping.
+// mode 0 = balanced (35%, cap 1GB); mode 1 = aggressive (45%, cap 1.5GB + trim).
 static void launcherBoostMemory(int mode) {
-    SIZE_T target;
-    SIZE_T blockSize;
-    DWORD blockSleep, holdMs;
-    if (mode == 1) {
-        target = (SIZE_T)(6500ull * 1024 * 1024);  // ~6.5GB aggressive default
-        blockSize = 100 * 1024 * 1024;
-        blockSleep = 25;
-        holdMs = 2500;
-    } else {
-        target = (SIZE_T)(5500ull * 1024 * 1024);  // ~5.5GB balanced default
-        blockSize = 50 * 1024 * 1024;
-        blockSleep = 40;
-        holdMs = 1500;
-    }
     MEMORYSTATUSEX ms;
     ms.dwLength = sizeof(ms);
-    if (GlobalMemoryStatusEx(&ms) && ms.ullTotalPhys > 0) {
-        // Adapt to the device: aim for a percentage of physical RAM, clamped.
-        int pct = (mode == 1) ? 65 : 45;
-        SIZE_T adaptive = (SIZE_T)(ms.ullTotalPhys * pct / 100);
-        const SIZE_T FLOOR = 512ull * 1024 * 1024;
-        const SIZE_T CEIL  = (mode == 1) ? 8192ull * 1024 * 1024 : 6144ull * 1024 * 1024;
-        if (adaptive < FLOOR) adaptive = FLOOR;
-        if (adaptive > CEIL) adaptive = CEIL;
-        target = adaptive;
-    }
-    int capCount = (int)(target / blockSize) + 1;
-    void** blocks = (void**)calloc(capCount, sizeof(void*));
+    if (!GlobalMemoryStatusEx(&ms) || ms.ullTotalPhys == 0) return;
+
+    int targetPct = (mode == 1) ? 45 : 35;
+    SIZE_T absCap = (mode == 1) ? (SIZE_T)1536 * 1024 * 1024
+                                : (SIZE_T)1024 * 1024 * 1024;
+    SIZE_T totalToAlloc = (SIZE_T)(ms.ullTotalPhys * targetPct / 100);
+    if (totalToAlloc > absCap) totalToAlloc = absCap;
+
+    // Keep at least 12% of physical RAM free (Box64 floor from the fork).
+    SIZE_T safetyFloor = (SIZE_T)(ms.ullTotalPhys * 12 / 100);
+
+    SYSTEM_INFO si; GetSystemInfo(&si);
+    SIZE_T pageStep = si.dwPageSize ? si.dwPageSize : 4096;
+
+    SIZE_T bSize = 8 * 1024 * 1024;  // 8MB per chunk, halved on alloc failure
+    SIZE_T maxBlocks = totalToAlloc / (1024 * 1024) + 8;
+    void** blocks = (void**)malloc(sizeof(void*) * maxBlocks);
     if (!blocks) return;
-    int n = 0;
-    SIZE_T got = 0;
-    while (got < target && n < capCount) {
-        void* p = VirtualAlloc(NULL, blockSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-        if (!p) break;
-        for (SIZE_T off = 0; off < blockSize; off += 4096) ((volatile char*)p)[off] = 1;
-        blocks[n++] = p;
-        got += blockSize;
-        Sleep(blockSleep);
+
+    int count = 0;
+    SIZE_T allocated = 0;
+    while (allocated < totalToAlloc && count < (int)maxBlocks) {
+        // Check the safety floor every 4 blocks (GlobalMemoryStatusEx is costly
+        // under Wine's Wine→Android translation).
+        if (count % 4 == 0) {
+            MEMORYSTATUSEX chk; chk.dwLength = sizeof(chk);
+            if (GlobalMemoryStatusEx(&chk) && chk.ullAvailPhys < safetyFloor)
+                break;
+        }
+        void* m = VirtualAlloc(NULL, bSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (!m) {
+            bSize /= 2;
+            if (bSize < 1024 * 1024) break;
+            continue;
+        }
+        // Touch every real page so physical memory is actually committed.
+        for (SIZE_T off = 0; off < bSize; off += pageStep)
+            ((volatile char*)m)[off] = 1;
+        blocks[count++] = m;
+        allocated += bSize;
+        Sleep(25);  // Box64 chunk interval from the fork
     }
-    if (n > 0) Sleep(holdMs);
-    for (int i = 0; i < n; i++) VirtualFree(blocks[i], 0, MEM_RELEASE);
+
+    if (count > 0) Sleep(500);  // hold briefly so LMK can select & kill victims
+    for (int i = 0; i < count; i++) VirtualFree(blocks[i], 0, MEM_RELEASE);
     free(blocks);
-    // Aggressive mode: also trim our own process working set to the minimum so
-    // the container has as much free RAM as possible for the game.
-    if (mode == 1) {
-        HANDLE self = GetCurrentProcess();
-        // Trim this process working set to the minimum, freeing RAM for the game.
-        SetProcessWorkingSetSize(self, (SIZE_T)-1, (SIZE_T)-1);
-    }
+
+    // Aggressive mode also trims WFM's own working set to the minimum.
+    if (mode == 1)
+        SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
 }
 
 struct LauncherArg {
@@ -1898,12 +1918,15 @@ static void launchWithArgs(const wchar_t* args) {
     if (h) CloseHandle(h); else free(a);
 }
 
-// Unity engine: force D3D11 single-threaded (common Winlator fix for Unity games).
 void onMenuItemRunDX11Click(void) { launchWithArgs(L"-force-d3d11 -force-d3d11-singlethread"); }
-// Unity engine: force DirectX 9 renderer.
 void onMenuItemRunD3D9Click(void) { launchWithArgs(L"-force-d3d9"); }
-// Unity engine: force OpenGL renderer (fallback for games that reject DX).
 void onMenuItemRunNoDebugClick(void) { launchWithArgs(L"-force-opengl"); }
+// Unreal Engine: force D3D11 / D3D12 renderer.
+void onMenuItemRunUEDX11Click(void) { launchWithArgs(L"-d3d11"); }
+void onMenuItemRunUEDX12Click(void) { launchWithArgs(L"-d3d12"); }
+// Generic: windowed / borderless window (works for Unity and many native games).
+void onMenuItemRunWindowedClick(void) { launchWithArgs(L"-screen-fullscreen 0 -windowed"); }
+void onMenuItemRunBorderlessClick(void) { launchWithArgs(L"-popupwindow -screen-fullscreen 1"); }
 
 // Context menu entry: free RAM then launch the target through the saved external
 // launcher (which receives the target path as its first argument). Only shown
