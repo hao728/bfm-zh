@@ -16,12 +16,14 @@ static bool isFavItem(LONG_PTR p, int* outIdx) {
 }
 
 static HTREEITEM favRootItem = NULL;
-// Private normal image list: a duplicate of the system small-icon list with a
-// golden star appended. System icons keep their original indices; the star gets
-// a new index used only by the Favorites branch, so favorites are visually
-// distinct from drives/folders without mutating the shared system list.
-static HIMAGELIST treeNormalList = NULL;
-static int starIconIndex = -1;
+// Favorites get a golden star as a STATE image (drawn next to the normal icon),
+// NOT as a normal icon. getFileInfo() returns indexes into the SYSTEM small-icon
+// list, so the tree MUST be bound to that system list directly — copying it
+// (ImageList_Duplicate or manual GetIcon/AddIcon) breaks under Wine: some system
+// icons fail to copy, the private list ends up shorter, and drive indexes point
+// past its end, which renders blank or the last (star) image. State images are
+// an overlay list used only by the Favorites branch, so system icons stay intact.
+static HIMAGELIST favStateList = NULL;
 
 // Create a 16x16 golden star bitmap (magenta = transparent mask).
 static HBITMAP createStarBitmap(void) {
@@ -52,12 +54,8 @@ static HBITMAP createStarBitmap(void) {
     return hbmp;
 }
 
-// Bind the tree to a PRIVATE copy of the system small-icon image list. We
-// rebuild the list by copying every system icon (indexes stay identical to the
-// system list, so getFileInfo() indexes still match) and append one golden-star
-// icon for the Favorites branch. Wine's ImageList_Duplicate can return an empty
-// list on some builds (all drive/folder icons vanished), so we copy icon by
-// icon instead — the copy never touches the process-wide shared system list.
+// Bind the tree to the SYSTEM small-icon image list (never copy it: see above).
+// Also create the favorites state list once: slot 0 empty, slot 1 golden star.
 static void bindSystemImageList(void) {
     HIMAGELIST himlBig = NULL, himlSmall = NULL;
     HIMAGELIST sysList = NULL;
@@ -68,49 +66,54 @@ static void bindSystemImageList(void) {
         sysList = (HIMAGELIST)SHGetFileInfo(L"", 0, &sfi, sizeof(SHFILEINFO),
                             SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
     }
-    if (!sysList) return;
+    if (sysList) TreeView_SetImageList(hwndTreeview, sysList, TVSIL_NORMAL);
 
-    if (!treeNormalList) {
-        int count = ImageList_GetImageCount(sysList);
-        if (count > 0) {
-            treeNormalList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK,
-                                              count + 2, 8);
-            if (treeNormalList) {
-                for (int i = 0; i < count; i++) {
-                    HICON h = ImageList_GetIcon(sysList, i, ILD_TRANSPARENT);
-                    if (h) {
-                        ImageList_AddIcon(treeNormalList, h);
-                        DestroyIcon(h);
-                    }
-                }
-                HBITMAP star = createStarBitmap();
-                if (star) {
-                    int idx = ImageList_AddMasked(treeNormalList, star, RGB(255, 0, 255));
-                    if (idx >= 0) starIconIndex = idx;
-                    DeleteObject(star);
-                }
+    if (!favStateList) {
+        favStateList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 2, 1);
+        if (favStateList) {
+            // Slot 0: fully transparent (mask colour = black, empty bitmap).
+            HDC hdcScreen = GetDC(NULL);
+            HDC hdcMem = CreateCompatibleDC(hdcScreen);
+            HBITMAP emptyBmp = CreateCompatibleBitmap(hdcScreen, 16, 16);
+            HBITMAP oldBmp = (HBITMAP)SelectObject(hdcMem, emptyBmp);
+            RECT rc = {0, 0, 16, 16};
+            HBRUSH black = CreateSolidBrush(RGB(0, 0, 0));
+            FillRect(hdcMem, &rc, black);
+            DeleteObject(black);
+            SelectObject(hdcMem, oldBmp);
+            DeleteDC(hdcMem);
+            ReleaseDC(NULL, hdcScreen);
+            ImageList_AddMasked(favStateList, emptyBmp, RGB(0, 0, 0));
+            DeleteObject(emptyBmp);
+            // Slot 1: golden star.
+            HBITMAP star = createStarBitmap();
+            if (star) {
+                ImageList_AddMasked(favStateList, star, RGB(255, 0, 255));
+                DeleteObject(star);
             }
         }
     }
-    TreeView_SetImageList(hwndTreeview,
-        treeNormalList ? treeNormalList : sysList, TVSIL_NORMAL);
+    if (favStateList) TreeView_SetImageList(hwndTreeview, favStateList, TVSIL_STATE);
 }
 
 static void insertFavoritesBranch(void) {
-    // Root node uses the golden star when available, else a folder icon.
+    // Root node uses the system folder icon + golden-star state image.
     struct FileInfo rootFi = {0};
     getFileInfo(L"C:\\", TYPE_DIR, false, &rootFi);
-    int rootIcon = (starIconIndex >= 0) ? starIconIndex : rootFi.icon;
+    int rootIcon = rootFi.icon;
 
     TVINSERTSTRUCT tvis = {0};
     tvis.hParent = NULL;
     tvis.hInsertAfter = TVI_LAST;
-    tvis.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+    tvis.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_CHILDREN | TVIF_IMAGE
+                     | TVIF_SELECTEDIMAGE | TVIF_STATE;
     tvis.itemex.pszText = (LPWSTR)L"\u6536\u85cf\u5939";  // 收藏夹
     tvis.itemex.cchTextMax = 8;
     tvis.itemex.lParam = (LPARAM)FAV_ROOT_MARK;
     tvis.itemex.iImage = rootIcon;
     tvis.itemex.iSelectedImage = rootIcon;
+    tvis.itemex.state = INDEXTOSTATEIMAGEMASK(1);
+    tvis.itemex.stateMask = TVIS_STATEIMAGEMASK;
 
     wchar_t favs[FAV_MAX][MAX_PATH];
     int n = favGetAll(favs);
@@ -127,17 +130,18 @@ static void insertFavoritesBranch(void) {
         TVINSERTSTRUCT ci = {0};
         ci.hParent = favRootItem;
         ci.hInsertAfter = TVI_LAST;
-        ci.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+        ci.itemex.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_STATE;
         const wchar_t* name = wcsrchr(favs[i], L'\\');
         name = name ? name + 1 : favs[i];
-        // Plain name; the golden-star icon already marks it as a favorite (a
-        // U+2605 text prefix was dropped: Wine's default font lacks that glyph).
+        // Real file/folder icon from the system list; the golden-star STATE
+        // image (drawn beside it) marks it as a favorite.
         ci.itemex.pszText = (LPWSTR)name;
         ci.itemex.cchTextMax = wcslen(name);
         ci.itemex.lParam = (LPARAM)(FAV_ITEM_MARK - i);
-        int itemIcon = (starIconIndex >= 0) ? starIconIndex : fi.icon;
-        ci.itemex.iImage = itemIcon;
-        ci.itemex.iSelectedImage = itemIcon;
+        ci.itemex.iImage = fi.icon;
+        ci.itemex.iSelectedImage = fi.icon;
+        ci.itemex.state = INDEXTOSTATEIMAGEMASK(1);
+        ci.itemex.stateMask = TVIS_STATEIMAGEMASK;
         TreeView_InsertItem(hwndTreeview, &ci);
     }
 
