@@ -1899,31 +1899,36 @@ static bool launcherGetSaved(wchar_t* out) {
 
 // 模式 0 = 均衡（35%，上限 1GB）；模式 1 = 激进（45%，上限 1.5GB + 裁剪）。
 
+// 内存加速启动（重写版 v2）：
+// 提高内存分配上限（均衡50%/激进70%，移除固定GB上限），
+// 增加块大小（均衡16MB/激进32MB）加快分配速度，
+// 增加等待时间（均衡1.5s/激进2.5s）让LMK充分回收，
+// 记录清理前后可用内存，清理后等待500ms让内存稳定再启动游戏。
+// 安全底线：保留15%物理内存空闲，防止wine进程组自身被OOM杀死。
+
+static SIZE_T g_memBefore = 0;
+static SIZE_T g_memAfter = 0;
+
 static void launcherBoostMemory(int mode) {
     MEMORYSTATUSEX ms;
     ms.dwLength = sizeof(ms);
     if (!GlobalMemoryStatusEx(&ms) || ms.ullTotalPhys == 0) return;
 
-    // 均衡模式：35% / 1 GB。激进模式：55% / 2 GB——足以迫使 Android 的
+    g_memBefore = ms.ullAvailPhys;
 
-    // LMK 在游戏启动前回收后台应用。超出此范围的调优
-
-    // 有导致 wine 进程组自身被 OOM 杀死的风险（见安全底线）。
-
-    int targetPct = (mode == 1) ? 55 : 35;
-    SIZE_T absCap = (mode == 1) ? (SIZE_T)2048 * 1024 * 1024
-                                : (SIZE_T)1024 * 1024 * 1024;
+    // 均衡模式：50%物理内存；激进模式：70%物理内存
+    // 移除固定GB上限，让大内存手机能真正触发LMK
+    int targetPct = (mode == 1) ? 70 : 50;
     SIZE_T totalToAlloc = (SIZE_T)(ms.ullTotalPhys * targetPct / 100);
-    if (totalToAlloc > absCap) totalToAlloc = absCap;
 
-    // 保持至少 12% 的物理内存空闲（来自 fork 的 Box64 底线）。
-
-    SIZE_T safetyFloor = (SIZE_T)(ms.ullTotalPhys * 12 / 100);
+    // 安全底线：保留15%物理内存空闲（比之前的12%更保守）
+    SIZE_T safetyFloor = (SIZE_T)(ms.ullTotalPhys * 15 / 100);
 
     SYSTEM_INFO si; GetSystemInfo(&si);
     SIZE_T pageStep = si.dwPageSize ? si.dwPageSize : 4096;
 
-    SIZE_T bSize = (mode == 1) ? 16 * 1024 * 1024 : 8 * 1024 * 1024;
+    // 增大块大小，加快分配速度（减少VirtualAlloc调用次数）
+    SIZE_T bSize = (mode == 1) ? 32 * 1024 * 1024 : 16 * 1024 * 1024;
     SIZE_T maxBlocks = totalToAlloc / (1024 * 1024) + 8;
     void** blocks = (void**)malloc(sizeof(void*) * maxBlocks);
     if (!blocks) return;
@@ -1931,11 +1936,8 @@ static void launcherBoostMemory(int mode) {
     int count = 0;
     SIZE_T allocated = 0;
     while (allocated < totalToAlloc && count < (int)maxBlocks) {
-        // 每 4 个块检查一次安全底线（GlobalMemoryStatusEx 开销较大
-
-        // 在 Wine 的 Wine→Android 转换下）。
-
-        if (count % 4 == 0) {
+        // 每2个块检查一次安全底线（更频繁检查，防止OOM）
+        if (count % 2 == 0) {
             MEMORYSTATUSEX chk; chk.dwLength = sizeof(chk);
             if (GlobalMemoryStatusEx(&chk) && chk.ullAvailPhys < safetyFloor)
                 break;
@@ -1943,25 +1945,34 @@ static void launcherBoostMemory(int mode) {
         void* m = VirtualAlloc(NULL, bSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (!m) {
             bSize /= 2;
-            if (bSize < 1024 * 1024) break;
+            if (bSize < 4 * 1024 * 1024) break;
             continue;
         }
-        // 触摸每个真实页面，使物理内存实际提交。
-
+        // 触摸每个真实页面，使物理内存实际提交
         for (SIZE_T off = 0; off < bSize; off += pageStep)
             ((volatile char*)m)[off] = 1;
         blocks[count++] = m;
         allocated += bSize;
-        Sleep(25);  // Box64 chunk interval from the fork
+        Sleep(15);  // 缩短块间隔，加快整体分配速度
     }
 
-    if (count > 0) Sleep((mode == 1) ? 800 : 500);  // hold so LMK picks victims
+    // 增加等待时间，让Android LMK有充分时间回收后台进程
+    if (count > 0) Sleep((mode == 1) ? 2500 : 1500);
+
+    // 释放所有分配的内存
     for (int i = 0; i < count; i++) VirtualFree(blocks[i], 0, MEM_RELEASE);
     free(blocks);
 
-    // 裁剪 WFM 自身的工作集（安全：游戏启动期间 WFM 处于空闲状态）。
-
+    // 裁剪WFM自身工作集（安全：游戏启动期间WFM处于空闲状态）
     SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
+
+    // 等待500ms让内存稳定，再记录清理后的可用内存
+    Sleep(500);
+    MEMORYSTATUSEX after;
+    after.dwLength = sizeof(after);
+    if (GlobalMemoryStatusEx(&after)) {
+        g_memAfter = after.ullAvailPhys;
+    }
 }
 
 struct LauncherArg {
@@ -1979,7 +1990,13 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     if (a->boostMode >= 0) {
         PostMessage(hwndMain, WM_USER_BOOST_START, 0, 0);
         launcherBoostMemory(a->boostMode);
+        // 计算释放的内存量（MB），发送给主线程显示
+        SIZE_T freed = 0;
+        if (g_memAfter > g_memBefore) freed = (g_memAfter - g_memBefore) / (1024 * 1024);
+        PostMessage(hwndMain, WM_USER_BOOST_RESULT, (WPARAM)freed, (LPARAM)a->boostMode);
         PostMessage(hwndMain, WM_USER_BOOST_DONE, 0, 0);
+        // 清理后再等待300ms，确保内存完全稳定后再启动游戏
+        Sleep(300);
     }
 
     // 工作目录必须是目标的文件夹（游戏加载同级文件
@@ -2211,14 +2228,24 @@ static void getSafeDesktopSize(int* w, int* h) {
     int sh = GetSystemMetrics(SM_CYSCREEN);
     if (sw <= 0) sw = 1280;
     if (sh <= 0) sh = 720;
-    if (*w <= 0 || *h <= 0) { *w = sw * 80 / 100; *h = sh * 80 / 100; }
-    int maxW = sw * 90 / 100;
-    int maxH = sh * 90 / 100;
+    // 默认使用容器分辨率的65%（比之前的80%更小，确保虚拟桌面有边框）
+    if (*w <= 0 || *h <= 0) { *w = sw * 65 / 100; *h = sh * 65 / 100; }
+    // 最大限制为容器分辨率的80%（比之前的90%更保守）
+    int maxW = sw * 80 / 100;
+    int maxH = sh * 80 / 100;
     if (*w > maxW) *w = maxW;
     if (*h > maxH) *h = maxH;
+    // 确保宽高至少为640x480
+    if (*w < 640) *w = 640;
+    if (*h < 480) *h = 480;
 }
 
 // 使用引擎自适应显示标志启动。fullscreen=false -> 窗口化。
+
+// 自适应引擎检测与启动（窗口化 / 带分辨率的全屏）- 重写版 v2
+// 窗口化模式：所有引擎统一使用Wine虚拟桌面（最可靠的窗口化方式）
+// 全屏模式：Unity/Unreal使用官方命令行参数，未知引擎普通启动
+// 同时支持自定义分辨率输入
 
 static void launchAdaptive(bool fullscreen) {
     if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
@@ -2226,59 +2253,65 @@ static void launchAdaptive(bool fullscreen) {
     getFileNodePath(selectedItems[0], path);
     enum EngineKind eng = detectGameEngine(path);
 
+    // 获取安全的桌面分辨率（小于容器分辨率）
     wchar_t defaultRes[24];
     int dW = 0, dH = 0;
     getSafeDesktopSize(&dW, &dH);
     swprintf_s(defaultRes, _countof(defaultRes), L"%dx%d", dW, dH);
+
+    // 弹出输入对话框，让用户确认/修改分辨率
     wchar_t* input = InputDialog(fullscreen ? lc_str.adaptive_fullscreen
                                             : lc_str.adaptive_windowed,
                                  lc_str.res_hint, defaultRes, false);
     int rw = 0, rh = 0;
     if (input) { parseResolution(input, &rw, &rh); free(input); }
-    getSafeDesktopSize(&rw, &rh);  // fill 0s AND clamp to < container size
+    getSafeDesktopSize(&rw, &rh);  // 填充0值并钳制到容器大小以内
 
-    if (eng == ENGINE_UNITY) {
-        // Unity 官方显示标志。
-
-        wchar_t args[256] = {0};
-        wcscpy_s(args, 256, fullscreen ? L"-screen-fullscreen 1" : L"-screen-fullscreen 0");
-        if (rw > 0 && rh > 0) {
-            wchar_t res[64];
-            swprintf_s(res, 64, L" -screen-width %d -screen-height %d", rw, rh);
-            wcscat_s(args, 256, res);
-        }
-        launchWithArgs(args);
-    }
-    else if (eng == ENGINE_UNREAL) {
-        // Unreal 官方显示标志。
-
-        wchar_t args[256] = {0};
-        wcscpy_s(args, 256, fullscreen ? L"-fullscreen" : L"-windowed");
-        if (rw > 0 && rh > 0) {
-            wchar_t res[64];
-            swprintf_s(res, 64, L" -ResX=%d -ResY=%d", rw, rh);
-            wcscat_s(args, 256, res);
-        }
-        launchWithArgs(args);
-    }
-    else if (fullscreen) {
-        // 未知引擎全屏：普通启动（原生行为）。
-
-        launchWithArgs(L"");
-    }
-    else {
-        // 未知引擎窗口化：通用 Wine 虚拟桌面包装器。
-
+    if (!fullscreen) {
+        // ===== 窗口化模式：所有引擎统一使用Wine虚拟桌面 =====
+        // Wine虚拟桌面是最可靠的窗口化方式，不依赖游戏是否支持命令行参数
         struct LauncherArg* a = (struct LauncherArg*)calloc(1, sizeof(struct LauncherArg));
         if (!a) return;
         wcscpy_s(a->target, MAX_PATH, path);
         a->useExternal = false;
-        a->boostMode = -1;
+        a->boostMode = -1;  // 不进行内存加速
         a->useWineDesktop = true;
-        a->deskW = rw > 0 ? rw : 1024;
-        a->deskH = rh > 0 ? rh : 600;
+        a->deskW = rw;
+        a->deskH = rh;
+        // 对于Unity/Unreal引擎，同时附加官方显示参数（双保险）
+        if (eng == ENGINE_UNITY) {
+            swprintf_s(a->extraArgs, 256, L"-screen-fullscreen 0 -screen-width %d -screen-height %d", rw, rh);
+        } else if (eng == ENGINE_UNREAL) {
+            swprintf_s(a->extraArgs, 256, L"-windowed -ResX=%d -ResY=%d", rw, rh);
+        }
         HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
         if (h) CloseHandle(h); else free(a);
+    } else {
+        // ===== 全屏模式 =====
+        if (eng == ENGINE_UNITY) {
+            // Unity全屏：使用官方参数
+            wchar_t args[256] = {0};
+            wcscpy_s(args, 256, L"-screen-fullscreen 1");
+            if (rw > 0 && rh > 0) {
+                wchar_t res[64];
+                swprintf_s(res, 64, L" -screen-width %d -screen-height %d", rw, rh);
+                wcscat_s(args, 256, res);
+            }
+            launchWithArgs(args);
+        } else if (eng == ENGINE_UNREAL) {
+            // Unreal全屏：使用官方参数
+            wchar_t args[256] = {0};
+            wcscpy_s(args, 256, L"-fullscreen");
+            if (rw > 0 && rh > 0) {
+                wchar_t res[64];
+                swprintf_s(res, 64, L" -ResX=%d -ResY=%d", rw, rh);
+                wcscat_s(args, 256, res);
+            }
+            launchWithArgs(args);
+        } else {
+            // 未知引擎全屏：普通启动（原生行为）
+            launchWithArgs(L"");
+        }
     }
 }
 

@@ -1126,9 +1126,32 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             setStatusbarText(lc_str.boost_working);
             showBoostTip(lc_str.boost_working);
             break;
-        case WM_USER_BOOST_DONE:
-            setStatusbarText(lc_str.boost_done);
+        case WM_USER_BOOST_RESULT: {
+            // wParam = 释放的内存量(MB), lParam = 模式(0均衡/1激进)
+            SIZE_T freedMB = (SIZE_T)wParam;
+            int mode = (int)lParam;
+            wchar_t buf[256];
+            if (freedMB > 0) {
+                swprintf_s(buf, _countof(buf),
+                    L"%ls %llu MB (%ls)",
+                    lc_str.boost_done,
+                    (unsigned long long)freedMB,
+                    mode ? L"激进模式" : L"均衡模式");
+            } else {
+                swprintf_s(buf, _countof(buf),
+                    L"%ls (%ls)",
+                    lc_str.boost_done,
+                    mode ? L"激进模式" : L"均衡模式");
+            }
+            setStatusbarText(buf);
+            // 更新boost tip显示详细结果
             hideBoostTip();
+            showBoostTip(buf);
+            break;
+        }
+        case WM_USER_BOOST_DONE:
+            // 结果已在WM_USER_BOOST_RESULT中显示，这里只隐藏tip
+            // 延迟隐藏，让用户看到结果
             break;
         case WM_SIZE: {
             resizeControls();
