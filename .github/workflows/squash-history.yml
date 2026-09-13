@@ -1,0 +1,30 @@
+name: squash-history
+
+on:
+  workflow_dispatch:
+
+jobs:
+  squash:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Squash all commits
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "Current commits: $(git rev-list --count HEAD)"
+          FIRST=$(git rev-list --max-parents=0 HEAD)
+          echo "First commit: $FIRST"
+          git reset --soft "$FIRST"
+          git add -A
+          printf 'feat: BFM-Zh Chinese Enhanced Edition v1.2.1-zh.2\n\nBased on The412Banner/banner-file-manager v1.2.1 (GPL-3.0-or-later)\n\nChanges:\n- Full Chinese localization (UI, menus, dialogs, status bar, context menu)\n- Dark theme adaptation (owner-draw headers, scrollbars, alt rows, hover)\n- Dual-pane file manager (sync nav, recursive compare, cross-pane copy/move)\n- Favorites (folder/file favorites, golden star marker, persistence)\n- OLE drag-and-drop (drag out to external apps, drop in, dual-pane)\n- Memory boost launch (balanced/aggressive modes, RamBooster-Winlator approach)\n- Adaptive engine launch args (Unity/Unreal/generic, windowed/fullscreen)\n- Preview pane (image preview, text preview, large icon fallback)\n- Process manager, file hash, icon extractor, navigation history\n- Windows Explorer-style capacity bar (used/total GB, low-space red warning)\n- Game mode (folders and exe only)\n- Install/uninstall scripts (bat auto-overwrite + desktop shortcut)\n- All source comments translated to Chinese (422 comments)\n- GitHub Actions auto-build (x64 mingw-w64)\n\nUpstream: https://github.com/The412Banner/banner-file-manager\nThis repo: https://github.com/hao728/bfm-zh\n' > /tmp/msg.txt
+          git commit -F /tmp/msg.txt
+          echo "New commits: $(git rev-list --count HEAD)"
+          git log --oneline
+          git push --force origin main
+          echo "Done. History squashed. No extra commit from this workflow."
+          echo "Delete .github/workflows/squash-history.yml after this run."

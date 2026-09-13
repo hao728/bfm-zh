@@ -1,0 +1,326 @@
+#define IDI_MAIN 101
+#define IDD_ABOUT 102
+#define IDI_GO 103
+#define IDI_REFRESH 104
+#define IDI_NAV_ARROW 105
+#define IDD_INPUT 106
+#define IDC_LABEL 107
+#define IDC_EDIT 108
+#define IDC_APP_NAME 109
+#define IDC_APP_VERSION 110
+#define IDC_APP_DEV_NAME 111
+#define IDD_FILE_ACTION 112
+#define IDC_PRELOADER 113
+#define IDI_SEARCH 114
+#define IDI_CANCEL 115
+#define IDI_UP 116
+#define IDI_COPY 117
+#define IDI_CUT 118
+#define IDI_PASTE 119
+#define IDI_DELETE 120
+#define IDI_NEW_FOLDER 121
+#define IDI_NEW_FILE 122
+
+#define IDI_PRELOADER_1 201
+#define IDI_PRELOADER_2 202
+#define IDI_PRELOADER_3 203
+#define IDI_PRELOADER_4 204
+#define IDI_PRELOADER_5 205
+#define IDI_PRELOADER_6 206
+#define IDI_PRELOADER_7 207
+#define IDI_PRELOADER_8 208
+
+#define ID_EDIT_CUT 301
+#define ID_EDIT_COPY 302
+#define ID_EDIT_PASTE 303
+#define ID_VIEW_LARGEICONS 304
+#define ID_VIEW_SMALLICONS 305
+#define ID_VIEW_LIST 306
+#define ID_VIEW_DETAILS 307
+#define ID_HELP_ABOUT 308
+#define ID_FILE_EXIT 309
+#define ID_EDIT_PASTE_SHORTCUT 310
+#define ID_EDIT_SELECT_ALL 311
+#define ID_VIEW_SPLIT 312
+#define ID_VIEW_HIDDEN 313
+#define ID_FILE_PROPERTIES 314
+#define ID_EDIT_COPY_PATH 315
+#define ID_FILE_OPEN_CMD 316
+#define ID_LANG_EN 320
+#define ID_LANG_ZH 321
+#define ID_LANG_PT 322
+#define ID_LANG_RU 323
+#define ID_MOUNT_ISO 330
+#define ID_UNMOUNT_ISO 331
+#define ID_FILE_NEW_TXT 317
+#define ID_FILE_NEW_BAT 318
+#define ID_FILE_NEW_REG 319
+#define ID_EDIT_HASH 324
+#define ID_NAV_BACK 370
+#define ID_NAV_FORWARD 371
+#define ID_FILE_EXTRACT_ICON 372
+#define ID_FILE_MD5 373
+#define ID_FILE_VIEW_TEXT 374
+#define ID_FILE_BATCH_RENAME 375
+#define ID_FILE_FOLDER_SIZE 376
+#define ID_VIEW_GAME_MODE 377
+#define ID_VIEW_COMPARE 378
+#define ID_NAV_RECENT 379
+#define ID_TOOL_NOTEPAD 380
+#define ID_TOOL_CMD 381
+#define ID_TOOL_REGEDIT 382
+#define ID_TOOL_TASKMGR 383
+#define ID_TAB_NEW 384
+#define ID_TAB_CLOSE 385
+#define ID_TOOL_LAUNCHER 386
+#define ID_FILE_DIFF 387
+#define ID_VIEW_PREVIEW 388
+#define IDD_HASH 148
+#define IDC_HASH_RESULT 149
+
+#define IDD_PROPERTIES 130
+#define IDC_PROP_NAME 131
+#define IDC_PROP_TYPE 132
+#define IDC_PROP_LOCATION 133
+#define IDC_PROP_SIZE 134
+#define IDC_PROP_MODIFIED 135
+#define IDC_PROGRESS 136
+#define IDC_ATTR_READONLY 137
+#define IDC_ATTR_HIDDEN 138
+#define IDC_PROP_LNAME 140
+#define IDC_PROP_LTYPE 141
+#define IDC_PROP_LLOCATION 142
+#define IDC_PROP_LSIZE 143
+#define IDC_PROP_LMODIFIED 144
+#define IDC_PROP_LATTRIBUTES 145
+#define IDC_APP_MODIFIER 146
+#define IDC_APP_REPO 147
+
+#ifndef IDC_STATIC
+#define IDC_STATIC -1
+#endif
+
+// 版本，单一真实来源。数字部分提供给 VERSIONINFO 资源
+
+// （res/resource.rc）；APP_VERSION 是关于对话框中显示的宽字符串。
+
+#define APP_VERSION_MAJOR 1
+#define APP_VERSION_MINOR 2
+#define APP_VERSION_PATCH 1
+#define APP_VERSION_STR "1.2.1"
+
+#define WIDEN_(x) L##x
+#define WIDEN(x) WIDEN_(x)
+
+#define APP_NAME L"Banner File Manager"
+#define APP_VERSION WIDEN(APP_VERSION_STR)
+#define APP_DEV_NAME L"The412Banner (based on WFM by BrunoSX)"
+
+#ifndef RESOURCE_H
+#define RESOURCE_H
+
+#ifndef RC_INVOKED
+struct LC_STR {
+    wchar_t* app_name;
+    wchar_t* app_version;
+    wchar_t* app_dev_name;
+    wchar_t* application;
+    wchar_t* shortcut;
+    wchar_t* file;
+    wchar_t* folder;
+    wchar_t* local_drive;
+    wchar_t* cd_drive;
+    wchar_t* computer;
+    wchar_t* desktop;
+    wchar_t* documents;
+    wchar_t* exit;
+    wchar_t* edit;
+    wchar_t* cut;
+    wchar_t* copy;
+    wchar_t* paste;
+    wchar_t* paste_shortcut;
+    wchar_t* select_all;
+    wchar_t* view;
+    wchar_t* large_icons;
+    wchar_t* small_icons;
+    wchar_t* list;
+    wchar_t* details;
+    wchar_t* split_view;
+    wchar_t* show_hidden;
+    wchar_t* properties;
+    wchar_t* help;
+    wchar_t* about;
+    wchar_t* ok;
+    wchar_t* cancel;
+    wchar_t* loading;
+    wchar_t* open;
+    wchar_t* open_as_admin;
+    wchar_t* open_with;
+    wchar_t* choose_program;
+    wchar_t* create_shortcut;
+    wchar_t* delete;
+    wchar_t* rename;
+    wchar_t* new_folder;
+    wchar_t* new_file;
+    wchar_t* items;
+    wchar_t* load_iso_image;
+    wchar_t* unload_iso_image;
+    wchar_t* no_media;
+    wchar_t* alert;
+    wchar_t* enter_folder_name;
+    wchar_t* enter_file_name;
+    wchar_t* enter_new_name;
+    wchar_t* name;
+    wchar_t* type;
+    wchar_t* size;
+    wchar_t* date;
+    wchar_t* path;
+    wchar_t* deleting_files;
+    wchar_t* copying_files;
+    wchar_t* moving_files;
+    wchar_t* extracting_files;
+    wchar_t* confirm_delete;
+    wchar_t* confirm_exit;
+    wchar_t* search;
+    wchar_t* up;
+    
+    wchar_t* fmt_file;
+    
+    wchar_t* msg_invalid_iso_image_file;
+    wchar_t* msg_deleting_files;
+    wchar_t* msg_copying_files;
+    wchar_t* msg_moving_files;
+    wchar_t* msg_extracting_files;
+    wchar_t* msg_cancel_file_operation;
+    wchar_t* msg_confirm_delete_item;
+    wchar_t* msg_confirm_delete_multiple_items;
+    wchar_t* msg_confirm_exit_app;
+    wchar_t* prop_name;
+    wchar_t* prop_type;
+    wchar_t* prop_location;
+    wchar_t* prop_size;
+    wchar_t* prop_modified;
+    wchar_t* prop_attributes;
+    wchar_t* prop_readonly;
+    wchar_t* prop_hidden;
+    wchar_t* copy_path;
+    wchar_t* open_cmd;
+    wchar_t* language;
+    wchar_t* mount;
+    wchar_t* mount_iso;
+    wchar_t* memory;
+    wchar_t* cpu;
+    wchar_t* free_space;
+    wchar_t* modifier;
+    wchar_t* repo_link;
+    wchar_t* new_txt;
+    wchar_t* new_bat;
+    wchar_t* new_reg;
+    wchar_t* hash_calc;
+    wchar_t* hash_md5;
+    wchar_t* hash_sha1;
+    wchar_t* new_file_submenu;
+    wchar_t* nav_menu;
+    wchar_t* nav_back;
+    wchar_t* nav_forward;
+    wchar_t* extract_icon;
+    wchar_t* calc_md5;
+    wchar_t* view_text;
+    wchar_t* batch_rename;
+    wchar_t* folder_size;
+    wchar_t* game_mode;
+    wchar_t* compare_panes;
+    wchar_t* recent_places;
+    wchar_t* calculating;
+    wchar_t* text_viewer;
+    wchar_t* find_text;
+    wchar_t* replace_text;
+    wchar_t* saved_icon;
+    wchar_t* panes_same;
+    wchar_t* panes_diff;
+    wchar_t* no_recent;
+    wchar_t* md5_title;
+    wchar_t* copy_to;
+    wchar_t* move_to;
+    // 阶段 2：收藏夹、快速启动工具、标签页
+
+    wchar_t* add_to_favorites;
+    wchar_t* tools_menu;
+    wchar_t* tool_notepad;
+    wchar_t* tool_cmd;
+    wchar_t* tool_regedit;
+    wchar_t* tool_taskmgr;
+    // 启动器（RamBooster 风格）：释放内存后启动目标 / 外部启动器
+
+    wchar_t* launcher_boost;
+    wchar_t* launcher_choose;
+    wchar_t* launcher_exists;  // shown when a launcher is already configured
+    wchar_t* launcher_run_with;
+    wchar_t* preview_pane;
+    wchar_t* extract_here;
+    wchar_t* extract_to_folder;
+    wchar_t* shared_storage;
+    wchar_t* diff_files;
+    // 双模式加速 + 启动参数（Wine 环境变量覆盖）
+
+    wchar_t* launcher_boost_aggressive;
+    wchar_t* run_with_args;
+    wchar_t* arg_dx11;
+    wchar_t* arg_d3d9;
+    wchar_t* arg_nodebug;
+    wchar_t* arg_custom;
+    wchar_t* adaptive_windowed;
+    wchar_t* adaptive_fullscreen;
+    wchar_t* res_hint;
+    wchar_t* copy_hash;
+    wchar_t* hash_sha256;
+    wchar_t* process_manager;
+    wchar_t* boost_working;
+    wchar_t* boost_done;
+    // v5.3 i18n 完成：错误提示、进程对话框、递归比较
+
+    wchar_t* err_open_file;
+    wchar_t* err_7z_missing;
+    wchar_t* err_diff_read;
+    wchar_t* hash_copied_fmt;
+    wchar_t* proc_kill;
+    wchar_t* proc_refresh;
+    wchar_t* proc_close;
+    wchar_t* cmp_summary_fmt;
+    wchar_t* cmp_tag_left;
+    wchar_t* cmp_tag_right;
+    wchar_t* cmp_tag_changed;
+    wchar_t* cmp_no_diff;
+    wchar_t* x_drive_missing;
+    wchar_t* new_txt_name;
+    wchar_t* diff_right_label;
+    wchar_t* diff_left_label;
+};
+
+extern struct LC_STR lc_str;
+
+#include "locale/strings_en.h"
+#include "locale/strings_pt.h"
+#include "locale/strings_ru.h"
+#include "locale/strings_zh.h"
+
+#define STARTS_WITH(a, b) (a[0] == b[0] && a[1] == b[1])
+
+static inline void loadLCStrings(wchar_t* localeName) {
+    if (STARTS_WITH(localeName, L"pt")) {
+        loadStrings_pt();
+    }
+    else if (STARTS_WITH(localeName, L"ru")) {
+        loadStrings_ru();
+    }
+    else if (STARTS_WITH(localeName, L"zh")) {
+        loadStrings_zh();
+    }
+    else loadStrings_en();
+}
+
+#undef STARTS_WITH
+
+#endif /* RC_INVOKED */
+
+#endif /* RESOURCE_H */

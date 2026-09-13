@@ -1,0 +1,117 @@
+#include <windows.h>
+
+#include "resource.h"
+
+IDI_MAIN ICON "main.ico"
+IDI_GO ICON "go.ico"
+IDI_REFRESH ICON "refresh.ico"
+IDI_SEARCH ICON "search.ico"
+IDI_CANCEL ICON "search.ico"
+IDI_NAV_ARROW ICON "nav_arrow.ico"
+IDI_UP ICON "up.ico"
+IDI_COPY ICON "copy.ico"
+IDI_CUT ICON "cut.ico"
+IDI_PASTE ICON "paste.ico"
+IDI_DELETE ICON "delete.ico"
+IDI_NEW_FOLDER ICON "new_folder.ico"
+IDI_NEW_FILE ICON "new_file.ico"
+IDI_PRELOADER_1 ICON "preloader_1.ico"
+IDI_PRELOADER_2 ICON "preloader_2.ico"
+IDI_PRELOADER_3 ICON "preloader_3.ico"
+IDI_PRELOADER_4 ICON "preloader_4.ico"
+IDI_PRELOADER_5 ICON "preloader_5.ico"
+IDI_PRELOADER_6 ICON "preloader_6.ico"
+IDI_PRELOADER_7 ICON "preloader_7.ico"
+IDI_PRELOADER_8 ICON "preloader_8.ico"
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "Application.manifest"
+
+// Standard version resource. Without this the binary carries no company, product or
+// version metadata at all, which both looks wrong in the Windows file-properties dialog
+// and counts against an unsigned executable in reputation/ML malware scoring.
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, 0
+PRODUCTVERSION APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, 0
+FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+FILEFLAGS      0
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_APP
+FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"    // US English, Unicode
+        BEGIN
+            VALUE "CompanyName",      "The412Banner"
+            VALUE "FileDescription",  "Banner File Manager"
+            VALUE "FileVersion",      APP_VERSION_STR
+            VALUE "InternalName",     "wfm"
+            VALUE "OriginalFilename", "wfm.exe"
+            VALUE "ProductName",       "Banner File Manager"
+            VALUE "ProductVersion",   APP_VERSION_STR
+            VALUE "LegalCopyright",   "Copyright (C) 2026 The412Banner. GPL-3.0-or-later. Based on WFM (C) 2023 BrunoSX."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 0x04B0
+    END
+END
+
+IDD_INPUT DIALOGEX 0, 0, 239, 61
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Dialog"
+FONT 9, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    DEFPUSHBUTTON "OK", IDOK, 125, 41, 50, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 182, 41, 50, 14
+    LTEXT "Label", IDC_LABEL, 6, 6, 226, 12
+    EDITTEXT IDC_EDIT, 6, 21, 226, 12, ES_AUTOHSCROLL
+END
+
+IDD_ABOUT DIALOGEX 0, 0, 240, 100
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About"
+FONT 9, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    ICON IDI_MAIN, IDC_STATIC, 208, 12, 24, 24
+    LTEXT "Label1", IDC_APP_NAME, 10, 10, 190, 12
+    LTEXT "Label2", IDC_APP_VERSION, 10, 24, 190, 10
+    LTEXT "Label3", IDC_APP_DEV_NAME, 10, 38, 190, 10
+    LTEXT "Label4", IDC_APP_MODIFIER, 10, 52, 190, 10
+    CONTROL "<a>https://github.com/hao728/bfm-zh</a>", IDC_APP_REPO, "SysLink", WS_TABSTOP, 10, 66, 200, 12
+    DEFPUSHBUTTON "OK", IDOK, 95, 82, 50, 14, WS_GROUP
+END
+
+IDD_FILE_ACTION DIALOGEX 0, 0, 160, 104
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Dialog"
+FONT 9, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    ICON IDI_PRELOADER_1, IDC_PRELOADER, 60, 5, 64, 64
+    CTEXT "Label", IDC_LABEL, 0, 55, 160, 10
+    CONTROL "", IDC_PROGRESS, "msctls_progress32", PBS_SMOOTH | WS_CHILD | WS_VISIBLE, 15, 68, 130, 8
+    PUSHBUTTON "Cancel", IDCANCEL, 55, 84, 50, 14
+END
+
+IDD_PROPERTIES DIALOGEX 0, 0, 220, 134
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Properties"
+FONT 9, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT "Name:", IDC_PROP_LNAME, 8, 10, 45, 10
+    LTEXT "", IDC_PROP_NAME, 56, 10, 156, 10
+    LTEXT "Type:", IDC_PROP_LTYPE, 8, 24, 45, 10
+    LTEXT "", IDC_PROP_TYPE, 56, 24, 156, 10
+    LTEXT "Location:", IDC_PROP_LLOCATION, 8, 38, 45, 10
+    LTEXT "", IDC_PROP_LOCATION, 56, 38, 156, 20
+    LTEXT "Size:", IDC_PROP_LSIZE, 8, 62, 45, 10
+    LTEXT "", IDC_PROP_SIZE, 56, 62, 156, 10
+    LTEXT "Modified:", IDC_PROP_LMODIFIED, 8, 76, 45, 10
+    LTEXT "", IDC_PROP_MODIFIED, 56, 76, 156, 10
+    LTEXT "Attributes:", IDC_PROP_LATTRIBUTES, 8, 92, 45, 10
+    AUTOCHECKBOX "Read-only", IDC_ATTR_READONLY, 56, 91, 72, 10
+    AUTOCHECKBOX "Hidden", IDC_ATTR_HIDDEN, 134, 91, 60, 10
+    DEFPUSHBUTTON "OK", IDOK, 58, 114, 45, 14
+    PUSHBUTTON "Cancel", IDCANCEL, 112, 114, 45, 14
+END

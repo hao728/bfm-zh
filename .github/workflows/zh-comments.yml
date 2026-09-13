@@ -1,0 +1,37 @@
+name: zh-comments
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check zip exists
+        run: |
+          if [ ! -f bfm-zh-comments.zip ]; then
+            echo "::error::bfm-zh-comments.zip not found in repo root"
+            exit 1
+          fi
+          echo "zip found"
+
+      - name: Extract and overwrite
+        run: |
+          unzip -o bfm-zh-comments.zip -d .
+          rm -f bfm-zh-comments.zip
+          echo "extracted, zip removed"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/ include/
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -m "chore: translate all source comments to Chinese (422 comments)"
+            git push
+            echo "committed and pushed"
+          fi
