@@ -93,6 +93,7 @@ void resizeControls();
 #define WM_USER_EXTRACT_DONE (WM_USER + 101)
 #define WM_USER_BOOST_START (WM_USER + 102)
 #define WM_USER_BOOST_DONE  (WM_USER + 103)
+#define WM_USER_BOOST_RESULT (WM_USER + 104)  // wParam=释放内存MB, lParam=模式(0均衡/1激进)
 HFONT getUIFont(void);
 void createStatusbar(void);
 void setStatusbarText(wchar_t* text);
