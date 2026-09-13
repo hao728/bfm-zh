@@ -80,6 +80,7 @@ static void onMenuItemNewBatClick();
 static void onMenuItemNewRegClick();
 static IDropTarget* createDropTarget(void);
 static void onMenuItemExtractIconClick(void);
+static void showIconInspector(const wchar_t* filePath);
 static void onMenuItemMD5Click(void);
 static void onMenuItemViewTextClick(void);
 static void onMenuItemBatchRenameClick(void);
@@ -4025,15 +4026,19 @@ static void showIconInspector(const wchar_t* filePath) {
         SetForegroundWindow(g_inspector->hwnd);
         return;
     }
-    // 注册窗口类
-    WNDCLASSEXW wc = {0};
-    wc.cbSize = sizeof(WNDCLASSEXW);
-    wc.lpfnWndProc = iconInspectorWndProc;
-    wc.hInstance = GetModuleHandleW(NULL);
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wc.lpszClassName = L"BFM_IconInspector";
-    RegisterClassExW(&wc);
+    // 注册窗口类（只注册一次）
+    static bool s_classRegistered = false;
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = {0};
+        wc.cbSize = sizeof(WNDCLASSEXW);
+        wc.lpfnWndProc = iconInspectorWndProc;
+        wc.hInstance = GetModuleHandleW(NULL);
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"BFM_IconInspector";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
 
     g_inspector = (IconInspectorState*)calloc(1, sizeof(IconInspectorState));
     if (!g_inspector) return;
