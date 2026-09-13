@@ -39,12 +39,10 @@ jobs:
         run: |
           mkdir -p release
           cp wfm.exe libcdio.dll release/
-          # Copy install/uninstall scripts and README if they exist
-          for f in install.bat uninstall.bat README.txt; do
-            if [ -f "scripts/$f" ]; then
-              cp "scripts/$f" "release/$f"
-            fi
-          done
+          # 复制安装脚本和使用说明（如果存在）
+          if [ -f scripts/install.bat ]; then cp scripts/install.bat release/; fi
+          if [ -f scripts/uninstall.bat ]; then cp scripts/uninstall.bat release/; fi
+          if [ -f "scripts/使用说明.txt" ]; then cp "scripts/使用说明.txt" release/; fi
           # Package everything in release/ into the zip
           cd release && zip -r ../bfm-zh-x64.zip . && cd ..
           echo "=== zip contents ==="
@@ -77,5 +75,5 @@ jobs:
             libcdio.dll
             scripts/install.bat
             scripts/uninstall.bat
-            scripts/README.txt
+            scripts/使用说明.txt
           fail_on_unmatched_files: true

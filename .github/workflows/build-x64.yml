@@ -46,11 +46,24 @@ jobs:
           file wfm.exe
           ls -l wfm.exe libcdio.dll
 
+      - name: Package build zip (with install scripts)
+        run: |
+          mkdir -p pkg
+          cp wfm.exe libcdio.dll pkg/
+          # 复制安装脚本和使用说明（如果存在）
+          if [ -f scripts/install.bat ]; then cp scripts/install.bat pkg/; fi
+          if [ -f scripts/uninstall.bat ]; then cp scripts/uninstall.bat pkg/; fi
+          if [ -f "scripts/使用说明.txt" ]; then cp "scripts/使用说明.txt" pkg/; fi
+          cd pkg && zip -r ../bfm-zh-x64.zip . && cd ..
+          echo "=== zip contents ==="
+          unzip -l bfm-zh-x64.zip
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: banner-file-manager-x64
+          name: bfm-zh-x64
           path: |
+            bfm-zh-x64.zip
             wfm.exe
             libcdio.dll
 
@@ -64,7 +77,10 @@ jobs:
           body: |
             Auto-built from commit ${{ github.sha }}.
             This is a pre-release for testing only.
+
+            包含：wfm.exe、libcdio.dll、install.bat、uninstall.bat、使用说明.txt
           files: |
+            bfm-zh-x64.zip
             wfm.exe
             libcdio.dll
           fail_on_unmatched_files: true
