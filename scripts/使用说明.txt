@@ -1,0 +1,32 @@
+========================================
+  BFM-Zh (Banner File Manager Zh)
+  使用说明
+========================================
+
+【安装方法】
+1. 将本压缩包所有文件解压到同一目录
+2. 双击运行 install.bat
+3. 等待安装完成（会自动备份旧版本）
+4. 桌面会生成 BFM-Zh 快捷方式
+
+【手动安装】
+如果 install.bat 无法运行，可手动复制：
+- wfm.exe    → C:\windows\wfm.exe
+- libcdio.dll → C:\windows\libcdio.dll
+
+【卸载方法】
+双击运行 uninstall.bat，会自动删除程序文件和桌面快捷方式。
+
+【更新方法】
+直接运行新版 install.bat 即可，会自动备份旧版本为 .bak 文件。
+
+【功能说明】
+- 中文美化版文件管理器，适配 Winlator/Bionic 容器
+- 支持右键加速启动（均衡/激进模式，释放内存后运行游戏）
+- 支持自适应窗口/全屏启动（Unity/Unreal引擎自动识别）
+- 支持双面板、拖拽、预览、图标提取、镜像挂载等功能
+
+【注意事项】
+- 本程序基于 Banner File Manager (GPL-3.0) 修改
+- 源码仓库：https://github.com/hao728/bfm-zh
+- 上游仓库：https://github.com/The412Banner/banner-file-manager
