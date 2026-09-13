@@ -69,11 +69,5 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           body: ${{ steps.notes.outputs.notes }}
-          files: |
-            bfm-zh-x64.zip
-            wfm.exe
-            libcdio.dll
-            scripts/install.bat
-            scripts/uninstall.bat
-            scripts/使用说明.txt
+          files: bfm-zh-x64.zip
           fail_on_unmatched_files: true
