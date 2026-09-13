@@ -3605,62 +3605,474 @@ static void onMenuItemExtractIconClick(void) {
     updateSelectedItems();
     if(numSelectedItems!=1)return;
     wchar_t srcPath[MAX_PATH]={0}; getFileNodePath(selectedItems[0],srcPath);
-    int w=32,h=32;
-    HICON hIcon = getBestFileIcon(srcPath,&w,&h);
-    if(!hIcon)return;
-    HDC hdc=GetDC(NULL);
-    HDC memDC=CreateCompatibleDC(hdc);
-    BITMAPINFO bi={0}; bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
-    bi.bmiHeader.biWidth=w; bi.bmiHeader.biHeight=h;
-    bi.bmiHeader.biPlanes=1; bi.bmiHeader.biBitCount=32; bi.bmiHeader.biCompression=BI_RGB;
-    void* bits=NULL;
-    HBITMAP hDib=CreateDIBSection(hdc,&bi,DIB_RGB_COLORS,&bits,NULL,0);
-    HGDIOBJ old=SelectObject(memDC,hDib);
-    // 首先绘制不透明的白色背景。图标带有透明区域；
+    // 调用图标检查器（多尺寸浏览+透明棋盘格+ICO/BMP保存）
+    showIconInspector(srcPath);
+}
 
-    // 留空会在手机查看器上产生黑边，而强制
+// ============================================================================
+// 图标检查器（Icon Inspector）- 原创设计
+// 多尺寸网格预览 + 透明棋盘格背景 + 点击选中 + ICO/BMP保存
+// ============================================================================
 
-    // 无背景的 alpha 通道仍会显示黑边。白色与以下方式一致：
+#define ICON_INSPECTOR_SIZES 6
+static const int g_iconSizes[ICON_INSPECTOR_SIZES] = {16, 32, 48, 64, 128, 256};
 
-    // Windows 资源管理器在浅色表面上渲染提取的图标。
+typedef struct {
+    wchar_t filePath[MAX_PATH];
+    HICON icons[ICON_INSPECTOR_SIZES];
+    int iconRealW[ICON_INSPECTOR_SIZES];
+    int iconRealH[ICON_INSPECTOR_SIZES];
+    int selectedSize;  // index into g_iconSizes
+    HWND hwnd;
+    HWND hwndPreview;
+    HWND hwndInfo;
+    HWND hwndSaveIco;
+    HWND hwndSaveBmp;
+    HWND hwndClose;
+} IconInspectorState;
 
-    if (bits) {
-        DWORD px=(DWORD)w*(DWORD)h; BYTE* p=(BYTE*)bits;
-        for(DWORD k=0;k<px;k++){ p[k*4+0]=255; p[k*4+1]=255; p[k*4+2]=255; p[k*4+3]=255; }
+static IconInspectorState* g_inspector = NULL;
+
+// 绘制透明棋盘格背景（专业图标编辑器风格）
+static void drawCheckerboard(HDC hdc, RECT* rect, int cellSize) {
+    for (int y = rect->top; y < rect->bottom; y += cellSize) {
+        for (int x = rect->left; x < rect->right; x += cellSize) {
+            BOOL isLight = ((x / cellSize + y / cellSize) % 2 == 0);
+            HBRUSH brush = CreateSolidBrush(isLight ? RGB(240, 240, 240) : RGB(200, 200, 200));
+            RECT cell = {x, y, min(x + cellSize, rect->right), min(y + cellSize, rect->bottom)};
+            FillRect(hdc, &cell, brush);
+            DeleteObject(brush);
+        }
     }
-    DrawIconEx(memDC,0,0,hIcon,w,h,0,NULL,DI_NORMAL);
-    // 保证完全不透明，避免任何查看器将像素解释为透明。
+}
 
-    if (bits) {
-        DWORD px = (DWORD)w * (DWORD)h;
-        BYTE* p = (BYTE*)bits;
-        for (DWORD k = 0; k < px; k++) p[k * 4 + 3] = 0xFF;
+// 提取指定尺寸的图标，返回真实尺寸
+static HICON extractIconAtSize(const wchar_t* path, int size, int* outW, int* outH) {
+    HICON hIcon = NULL;
+    HICON cand = NULL;
+    UINT got = PrivateExtractIconsW(path, 0, size, size, &cand, NULL, 1, 0);
+    if (got != 0 && got != 0xFFFFFFFFu && cand) {
+        hIcon = cand;
+    } else if (cand) {
+        DestroyIcon(cand);
     }
-    // 写入 BMP 文件
+    if (!hIcon) {
+        SHFILEINFOW sfi = {0};
+        if (SHGetFileInfoW(path, 0, &sfi, sizeof(sfi), SHGFI_ICON | SHGFI_LARGEICON) && sfi.hIcon) {
+            hIcon = sfi.hIcon;
+        }
+    }
+    int w = size, h = size;
+    if (hIcon) {
+        ICONINFO ii = {0};
+        if (GetIconInfo(hIcon, &ii)) {
+            BITMAP bm = {0};
+            GetObject(ii.hbmColor ? ii.hbmColor : ii.hbmMask, sizeof(bm), &bm);
+            if (bm.bmWidth > 0) w = bm.bmWidth;
+            if (bm.bmHeight > 0) {
+                h = bm.bmHeight;
+                if (!ii.hbmColor) h /= 2;
+            }
+            if (ii.hbmMask) DeleteObject(ii.hbmMask);
+            if (ii.hbmColor) DeleteObject(ii.hbmColor);
+        }
+    }
+    if (outW) *outW = w;
+    if (outH) *outH = h;
+    return hIcon;
+}
 
-    wchar_t* name=wcsrchr(srcPath,L'\\'); name=name?name+1:srcPath;
-    wchar_t* dot=wcsrchr(name,L'.');
-    wchar_t baseName[MAX_PATH]; wcsncpy_s(baseName,MAX_PATH,name,dot?(size_t)(dot-name):wcslen(name));
-    wchar_t dir[MAX_PATH]={0}; getFileNodePath(selectedItems[0]->parent,dir);
-    wchar_t outPath[MAX_PATH]={0};
-    swprintf_s(outPath,MAX_PATH,L"%ls\\%ls_icon.bmp",dir,baseName);
-    HANDLE hf=CreateFileW(outPath,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
-    if(hf!=INVALID_HANDLE_VALUE){
-        DWORD imgSize=w*h*4, wr;
-        unsigned char hdr[54]={0};
-        hdr[0]='B';hdr[1]='M';
-        DWORD fileSize=54+imgSize;
-        memcpy(hdr+2,&fileSize,4); hdr[10]=54;
-        DWORD biSize=40; memcpy(hdr+14,&biSize,4);
-        memcpy(hdr+18,&w,4); memcpy(hdr+22,&h,4);
-        short planes=1,bpp=32; memcpy(hdr+26,&planes,2); memcpy(hdr+28,&bpp,2);
-        memcpy(hdr+34,&imgSize,4);
-        WriteFile(hf,hdr,54,&wr,NULL);
-        WriteFile(hf,bits,imgSize,&wr,NULL); CloseHandle(hf);
+// 保存为BMP（透明棋盘格背景，修复黑边问题）
+static BOOL saveIconAsBmpCheckerboard(HICON hIcon, int w, int h, const wchar_t* outPath) {
+    if (!hIcon || !outPath) return FALSE;
+    HDC hdc = GetDC(NULL);
+    HDC memDC = CreateCompatibleDC(hdc);
+    BITMAPINFO bi = {0};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = h;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = NULL;
+    HBITMAP hDib = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (!hDib) { DeleteDC(memDC); ReleaseDC(NULL, hdc); return FALSE; }
+    HGDIOBJ old = SelectObject(memDC, hDib);
+    // 绘制棋盘格背景
+    RECT fullRect = {0, 0, w, h};
+    int cellSize = max(4, w / 16);
+    drawCheckerboard(memDC, &fullRect, cellSize);
+    // 绘制图标
+    DrawIconEx(memDC, 0, 0, hIcon, w, h, 0, NULL, DI_NORMAL);
+    SelectObject(memDC, old);
+    // 写入BMP文件
+    HANDLE hf = CreateFileW(outPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hf == INVALID_HANDLE_VALUE) {
+        DeleteObject(hDib); DeleteDC(memDC); ReleaseDC(NULL, hdc); return FALSE;
     }
-    SelectObject(memDC,old); DeleteObject(hDib); DeleteDC(memDC); ReleaseDC(NULL,hdc);
-    DestroyIcon(hIcon);
-    MessageBoxW(hwndMain,outPath,lc_str.saved_icon,MB_OK|MB_ICONINFORMATION);
+    DWORD imgSize = (DWORD)w * (DWORD)h * 4, wr;
+    unsigned char hdr[54] = {0};
+    hdr[0] = 'B'; hdr[1] = 'M';
+    DWORD fileSize = 54 + imgSize;
+    memcpy(hdr + 2, &fileSize, 4); hdr[10] = 54;
+    DWORD biSize = 40; memcpy(hdr + 14, &biSize, 4);
+    memcpy(hdr + 18, &w, 4); memcpy(hdr + 22, &h, 4);
+    short planes = 1, bpp = 32;
+    memcpy(hdr + 26, &planes, 2); memcpy(hdr + 28, &bpp, 2);
+    memcpy(hdr + 34, &imgSize, 4);
+    WriteFile(hf, hdr, 54, &wr, NULL);
+    WriteFile(hf, bits, imgSize, &wr, NULL);
+    CloseHandle(hf);
+    DeleteObject(hDib); DeleteDC(memDC); ReleaseDC(NULL, hdc);
+    return TRUE;
+}
+
+// 保存为ICO（多尺寸打包，原创实现）
+static BOOL saveIconsAsIco(HICON* icons, int* widths, int* heights, int count, const wchar_t* outPath) {
+    if (!icons || !outPath || count <= 0) return FALSE;
+
+    // 收集每个图标的原始数据
+    typedef struct { BYTE* data; DWORD size; int w; int h; } IconRaw;
+    IconRaw* raws = (IconRaw*)calloc(count, sizeof(IconRaw));
+    if (!raws) return FALSE;
+
+    int validCount = 0;
+    for (int i = 0; i < count; i++) {
+        if (!icons[i]) continue;
+        ICONINFO ii = {0};
+        if (!GetIconInfo(icons[i], &ii)) continue;
+        int w = widths[i], h = heights[i];
+        // 获取颜色位图数据
+        BITMAPINFO bmi = {0};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = w;
+        bmi.bmiHeader.biHeight = h;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        BYTE* colorBits = (BYTE*)malloc((size_t)w * h * 4);
+        if (!colorBits) { if (ii.hbmColor) DeleteObject(ii.hbmColor); if (ii.hbmMask) DeleteObject(ii.hbmMask); continue; }
+        HDC hdc = GetDC(NULL);
+        int gotLines = GetDIBits(hdc, ii.hbmColor, 0, h, colorBits, &bmi, DIB_RGB_COLORS);
+        ReleaseDC(NULL, hdc);
+        // 获取掩码位图数据（AND掩码，高度是图标的2倍：上半XOR，下半AND）
+        BYTE* maskBits = NULL;
+        DWORD maskSize = 0;
+        if (ii.hbmMask) {
+            BITMAP bmMask = {0};
+            GetObject(ii.hbmMask, sizeof(BITMAP), &bmMask);
+            maskSize = (DWORD)bmMask.bmWidthBytes * bmMask.bmHeight;
+            maskBits = (BYTE*)malloc(maskSize);
+            if (maskBits) {
+                BITMAPINFO bmiMask = {0};
+                bmiMask.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                bmiMask.bmiHeader.biWidth = bmMask.bmWidth;
+                bmiMask.bmiHeader.biHeight = bmMask.bmHeight;
+                bmiMask.bmiHeader.biPlanes = 1;
+                bmiMask.bmiHeader.biBitCount = 1;
+                HDC hdc2 = GetDC(NULL);
+                GetDIBits(hdc2, ii.hbmMask, 0, bmMask.bmHeight, maskBits, &bmiMask, DIB_RGB_COLORS);
+                ReleaseDC(NULL, hdc2);
+            }
+        }
+        // 构建ICO中的图标数据：BITMAPINFOHEADER + XOR颜色 + AND掩码
+        DWORD xorSize = (DWORD)w * h * 4;
+        DWORD andSize = maskSize ? maskSize / 2 : 0;  // 只取下半部分（AND掩码）
+        DWORD totalSize = 40 + xorSize + andSize;
+        BYTE* iconData = (BYTE*)malloc(totalSize);
+        if (iconData) {
+            memset(iconData, 0, 40);
+            BITMAPINFOHEADER* biHdr = (BITMAPINFOHEADER*)iconData;
+            biHdr->biSize = 40;
+            biHdr->biWidth = w;
+            biHdr->biHeight = h * 2;  // ICO格式：高度是XOR+AND的总高度
+            biHdr->biPlanes = 1;
+            biHdr->biBitCount = 32;
+            biHdr->biCompression = BI_RGB;
+            biHdr->biSizeImage = xorSize + andSize;
+            memcpy(iconData + 40, colorBits, xorSize);
+            if (maskBits && andSize > 0) {
+                memcpy(iconData + 40 + xorSize, maskBits + (maskSize / 2), andSize);
+            }
+            raws[validCount].data = iconData;
+            raws[validCount].size = totalSize;
+            raws[validCount].w = w;
+            raws[validCount].h = h;
+            validCount++;
+        }
+        free(colorBits);
+        free(maskBits);
+        if (ii.hbmColor) DeleteObject(ii.hbmColor);
+        if (ii.hbmMask) DeleteObject(ii.hbmMask);
+    }
+
+    if (validCount == 0) { free(raws); return FALSE; }
+
+    // 写入ICO文件
+    HANDLE hf = CreateFileW(outPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hf == INVALID_HANDLE_VALUE) {
+        for (int i = 0; i < validCount; i++) free(raws[i].data);
+        free(raws); return FALSE;
+    }
+    DWORD wr;
+    // ICONDIR
+    WORD reserved = 0, type = 1, count16 = (WORD)validCount;
+    WriteFile(hf, &reserved, 2, &wr, NULL);
+    WriteFile(hf, &type, 2, &wr, NULL);
+    WriteFile(hf, &count16, 2, &wr, NULL);
+    // ICONDIRENTRY数组
+    DWORD dataOffset = 6 + (DWORD)validCount * 16;
+    for (int i = 0; i < validCount; i++) {
+        BYTE bWidth = (raws[i].w >= 256) ? 0 : (BYTE)raws[i].w;
+        BYTE bHeight = (raws[i].h >= 256) ? 0 : (BYTE)raws[i].h;
+        BYTE bColorCount = 0;
+        BYTE bReserved = 0;
+        WORD wPlanes = 1;
+        WORD wBitCount = 32;
+        DWORD dwBytesInRes = raws[i].size;
+        DWORD dwImageOffset = dataOffset;
+        WriteFile(hf, &bWidth, 1, &wr, NULL);
+        WriteFile(hf, &bHeight, 1, &wr, NULL);
+        WriteFile(hf, &bColorCount, 1, &wr, NULL);
+        WriteFile(hf, &bReserved, 1, &wr, NULL);
+        WriteFile(hf, &wPlanes, 2, &wr, NULL);
+        WriteFile(hf, &wBitCount, 2, &wr, NULL);
+        WriteFile(hf, &dwBytesInRes, 4, &wr, NULL);
+        WriteFile(hf, &dwImageOffset, 4, &wr, NULL);
+        dataOffset += raws[i].size;
+    }
+    // 图标数据
+    for (int i = 0; i < validCount; i++) {
+        WriteFile(hf, raws[i].data, raws[i].size, &wr, NULL);
+        free(raws[i].data);
+    }
+    CloseHandle(hf);
+    free(raws);
+    return TRUE;
+}
+
+// 图标检查器窗口过程
+static LRESULT CALLBACK iconInspectorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (!g_inspector) return DefWindowProcW(hwnd, msg, wParam, lParam);
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT clientRect;
+            GetClientRect(hwnd, &clientRect);
+            // 背景
+            HBRUSH bgBrush = CreateSolidBrush(RGB(245, 245, 245));
+            FillRect(hdc, &clientRect, bgBrush);
+            DeleteObject(bgBrush);
+            // 标题
+            HFONT titleFont = CreateFontW(18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei");
+            HGDIOBJ oldFont = SelectObject(hdc, titleFont);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(30, 30, 30));
+            wchar_t title[256];
+            wchar_t* fileName = wcsrchr(g_inspector->filePath, L'\\');
+            fileName = fileName ? fileName + 1 : g_inspector->filePath;
+            swprintf_s(title, 256, L"图标检查器 - %ls", fileName);
+            TextOutW(hdc, 15, 12, title, (int)wcslen(title));
+            SelectObject(hdc, oldFont);
+            DeleteObject(titleFont);
+            // 网格：6个尺寸图标
+            int gridX = 15, gridY = 50;
+            int cellW = 100, cellH = 100;
+            int cols = 3, rows = 2;
+            for (int i = 0; i < ICON_INSPECTOR_SIZES; i++) {
+                int col = i % cols;
+                int row = i / cols;
+                int x = gridX + col * cellW;
+                int y = gridY + row * cellH;
+                RECT cellRect = {x + 5, y + 5, x + cellW - 5, y + cellH - 25};
+                // 选中高亮
+                if (i == g_inspector->selectedSize) {
+                    HBRUSH selBrush = CreateSolidBrush(RGB(200, 220, 255));
+                    HPEN selPen = CreatePen(PS_SOLID, 2, RGB(0, 120, 215));
+                    HGDIOBJ oldBrush = SelectObject(hdc, selBrush);
+                    HGDIOBJ oldPen = SelectObject(hdc, selPen);
+                    Rectangle(hdc, cellRect.left - 3, cellRect.top - 3, cellRect.right + 3, cellRect.bottom + 3);
+                    SelectObject(hdc, oldBrush);
+                    SelectObject(hdc, oldPen);
+                    DeleteObject(selBrush);
+                    DeleteObject(selPen);
+                }
+                // 棋盘格背景
+                drawCheckerboard(hdc, &cellRect, 6);
+                // 绘制图标（居中）
+                if (g_inspector->icons[i]) {
+                    int iconSize = g_iconSizes[i];
+                    int drawSize = min(iconSize, min(cellRect.right - cellRect.left - 10, cellRect.bottom - cellRect.top - 10));
+                    int drawX = cellRect.left + (cellRect.right - cellRect.left - drawSize) / 2;
+                    int drawY = cellRect.top + (cellRect.bottom - cellRect.top - drawSize) / 2;
+                    DrawIconEx(hdc, drawX, drawY, g_inspector->icons[i], drawSize, drawSize, 0, NULL, DI_NORMAL);
+                }
+                // 尺寸标签
+                HFONT labelFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                    DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei");
+                oldFont = SelectObject(hdc, labelFont);
+                SetBkMode(hdc, TRANSPARENT);
+                SetTextColor(hdc, RGB(60, 60, 60));
+                wchar_t label[32];
+                swprintf_s(label, 32, L"%dx%d", g_iconSizes[i], g_iconSizes[i]);
+                int labelX = cellRect.left + (cellRect.right - cellRect.left - (int)wcslen(label) * 7) / 2;
+                TextOutW(hdc, labelX, cellRect.bottom + 3, label, (int)wcslen(label));
+                SelectObject(hdc, oldFont);
+                DeleteObject(labelFont);
+            }
+            // 信息栏
+            RECT infoRect = {15, gridY + rows * cellH + 10, clientRect.right - 15, gridY + rows * cellH + 40};
+            HBRUSH infoBrush = CreateSolidBrush(RGB(255, 255, 255));
+            FillRect(hdc, &infoRect, infoBrush);
+            DeleteObject(infoBrush);
+            HFONT infoFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei");
+            oldFont = SelectObject(hdc, infoFont);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(50, 50, 50));
+            int sel = g_inspector->selectedSize;
+            wchar_t info[256];
+            swprintf_s(info, 256, L"选中: %dx%d  实际: %dx%d  点击网格切换尺寸",
+                g_iconSizes[sel], g_iconSizes[sel],
+                g_inspector->iconRealW[sel], g_inspector->iconRealH[sel]);
+            TextOutW(hdc, infoRect.left + 10, infoRect.top + 8, info, (int)wcslen(info));
+            SelectObject(hdc, oldFont);
+            DeleteObject(infoFont);
+            EndPaint(hwnd, &ps);
+            break;
+        }
+        case WM_LBUTTONDOWN: {
+            int gridX = 15, gridY = 50;
+            int cellW = 100, cellH = 100;
+            int cols = 3;
+            int x = (int)(short)LOWORD(lParam);
+            int y = (int)(short)HIWORD(lParam);
+            for (int i = 0; i < ICON_INSPECTOR_SIZES; i++) {
+                int col = i % cols;
+                int row = i / cols;
+                int cellX = gridX + col * cellW;
+                int cellY = gridY + row * cellH;
+                if (x >= cellX && x < cellX + cellW && y >= cellY && y < cellY + cellH) {
+                    g_inspector->selectedSize = i;
+                    InvalidateRect(hwnd, NULL, TRUE);
+                    break;
+                }
+            }
+            break;
+        }
+        case WM_COMMAND: {
+            WORD id = LOWORD(wParam);
+            if (id == 1001) {  // 保存ICO
+                wchar_t* name = wcsrchr(g_inspector->filePath, L'\\');
+                name = name ? name + 1 : g_inspector->filePath;
+                wchar_t* dot = wcsrchr(name, L'.');
+                wchar_t baseName[MAX_PATH];
+                wcsncpy_s(baseName, MAX_PATH, name, dot ? (size_t)(dot - name) : wcslen(name));
+                wchar_t dir[MAX_PATH] = {0};
+                wcsncpy_s(dir, MAX_PATH, g_inspector->filePath, wcslen(g_inspector->filePath) - wcslen(name));
+                wchar_t outPath[MAX_PATH];
+                swprintf_s(outPath, MAX_PATH, L"%ls%ls_icons.ico", dir, baseName);
+                if (saveIconsAsIco(g_inspector->icons, g_inspector->iconRealW, g_inspector->iconRealH, ICON_INSPECTOR_SIZES, outPath)) {
+                    MessageBoxW(hwnd, outPath, L"保存ICO成功", MB_OK | MB_ICONINFORMATION);
+                } else {
+                    MessageBoxW(hwnd, L"保存ICO失败", L"错误", MB_OK | MB_ICONERROR);
+                }
+            } else if (id == 1002) {  // 保存BMP
+                int sel = g_inspector->selectedSize;
+                wchar_t* name = wcsrchr(g_inspector->filePath, L'\\');
+                name = name ? name + 1 : g_inspector->filePath;
+                wchar_t* dot = wcsrchr(name, L'.');
+                wchar_t baseName[MAX_PATH];
+                wcsncpy_s(baseName, MAX_PATH, name, dot ? (size_t)(dot - name) : wcslen(name));
+                wchar_t dir[MAX_PATH] = {0};
+                wcsncpy_s(dir, MAX_PATH, g_inspector->filePath, wcslen(g_inspector->filePath) - wcslen(name));
+                wchar_t outPath[MAX_PATH];
+                swprintf_s(outPath, MAX_PATH, L"%ls%ls_icon_%d.bmp", dir, baseName, g_iconSizes[sel]);
+                if (saveIconAsBmpCheckerboard(g_inspector->icons[sel], g_inspector->iconRealW[sel], g_inspector->iconRealH[sel], outPath)) {
+                    MessageBoxW(hwnd, outPath, L"保存BMP成功", MB_OK | MB_ICONINFORMATION);
+                } else {
+                    MessageBoxW(hwnd, L"保存BMP失败", L"错误", MB_OK | MB_ICONERROR);
+                }
+            } else if (id == 1003) {  // 关闭
+                DestroyWindow(hwnd);
+            }
+            break;
+        }
+        case WM_DESTROY: {
+            if (g_inspector) {
+                for (int i = 0; i < ICON_INSPECTOR_SIZES; i++) {
+                    if (g_inspector->icons[i]) DestroyIcon(g_inspector->icons[i]);
+                }
+                free(g_inspector);
+                g_inspector = NULL;
+            }
+            break;
+        }
+        default:
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+// 显示图标检查器窗口
+static void showIconInspector(const wchar_t* filePath) {
+    if (g_inspector) {
+        SetForegroundWindow(g_inspector->hwnd);
+        return;
+    }
+    // 注册窗口类
+    WNDCLASSEXW wc = {0};
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.lpfnWndProc = iconInspectorWndProc;
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.lpszClassName = L"BFM_IconInspector";
+    RegisterClassExW(&wc);
+
+    g_inspector = (IconInspectorState*)calloc(1, sizeof(IconInspectorState));
+    if (!g_inspector) return;
+    wcsncpy_s(g_inspector->filePath, MAX_PATH, filePath, MAX_PATH - 1);
+    g_inspector->selectedSize = 2;  // 默认选中48px
+
+    // 提取所有尺寸的图标
+    for (int i = 0; i < ICON_INSPECTOR_SIZES; i++) {
+        g_inspector->icons[i] = extractIconAtSize(filePath, g_iconSizes[i],
+            &g_inspector->iconRealW[i], &g_inspector->iconRealH[i]);
+    }
+
+    // 创建窗口
+    int winW = 360, winH = 380;
+    g_inspector->hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"BFM_IconInspector",
+        L"图标检查器", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, winW, winH,
+        hwndMain, NULL, GetModuleHandleW(NULL), NULL);
+
+    if (!g_inspector->hwnd) {
+        for (int i = 0; i < ICON_INSPECTOR_SIZES; i++) {
+            if (g_inspector->icons[i]) DestroyIcon(g_inspector->icons[i]);
+        }
+        free(g_inspector);
+        g_inspector = NULL;
+        return;
+    }
+
+    // 创建按钮
+    int btnY = winH - 70;
+    CreateWindowW(L"BUTTON", L"保存全部为ICO", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        15, btnY, 120, 30, g_inspector->hwnd, (HMENU)1001, GetModuleHandleW(NULL), NULL);
+    CreateWindowW(L"BUTTON", L"保存选中为BMP", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        145, btnY, 120, 30, g_inspector->hwnd, (HMENU)1002, GetModuleHandleW(NULL), NULL);
+    CreateWindowW(L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        275, btnY, 65, 30, g_inspector->hwnd, (HMENU)1003, GetModuleHandleW(NULL), NULL);
+
+    ShowWindow(g_inspector->hwnd, SW_SHOW);
+    UpdateWindow(g_inspector->hwnd);
 }
 
 // ---------- MD5 menu ----------
