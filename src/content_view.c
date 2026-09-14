@@ -81,6 +81,7 @@ static void onMenuItemNewRegClick();
 static IDropTarget* createDropTarget(void);
 static void onMenuItemExtractIconClick(void);
 static void showIconInspector(const wchar_t* filePath);
+static void onMenuItemManageAssocClick(void);
 static void onMenuItemMD5Click(void);
 static void onMenuItemViewTextClick(void);
 static void onMenuItemBatchRenameClick(void);
@@ -118,6 +119,7 @@ static struct ContextMenuItem cmiLoadISOImage = {NULL, &onMenuItemLoadISOImageCl
 static struct ContextMenuItem cmiUnloadISOImage = {NULL, &onMenuItemUnloadISOImageClick, NULL};
 static struct ContextMenuItem cmiOpenAsAdmin = {NULL, &onMenuItemOpenAsAdminClick, NULL};
 static struct ContextMenuItem cmiChooseProgram = {NULL, &onMenuItemOpenWithClick, NULL};
+static struct ContextMenuItem cmiManageAssoc = {NULL, &onMenuItemManageAssocClick, NULL};
 static struct ContextMenuItem cmiProperties = {NULL, &onMenuItemPropertiesClick, NULL};
 static struct ContextMenuItem cmiCopyPath = {NULL, &onMenuItemCopyPathClick, NULL};
 static struct ContextMenuItem cmiOpenCmd = {NULL, &onMenuItemOpenCmdClick, NULL};
@@ -750,6 +752,32 @@ static void createOpenWithMenu(int* id) {
     HMENU hSubmenu = CreatePopupMenu();
     int count = 0;
 
+    // ===== 顶部：内部关联程序（原创功能）=====
+    wchar_t fileExt[32] = {0};
+    faGetFileExt(filePath, fileExt, 32);
+    wchar_t assocExe[MAX_PATH] = {0};
+    if (fileExt[0] && faGetAssociation(fileExt, assocExe, MAX_PATH)) {
+        wchar_t* exeName = wcsrchr(assocExe, L'\\');
+        exeName = exeName ? exeName + 1 : assocExe;
+        wchar_t menuText[256];
+        swprintf_s(menuText, 256, L"用 %ls 打开", exeName);
+        struct ContextMenuItem* cmItem = addMenuItemSlot();
+        cmItem->text = wcsdup(menuText);
+        cmItem->proc = NULL;
+        cmItem->cmdData = NULL;
+        cmItem->openExe = wcsdup(assocExe);
+        cmItem->openFile = wcsdup(filePath);
+        addContextMenuItem(hSubmenu, (*id)++, cmItem, false);
+        count++;
+        // 分隔线
+        MENUITEMINFO sep = {0};
+        sep.cbSize = sizeof(MENUITEMINFO);
+        sep.fMask = MIIM_TYPE;
+        sep.fType = MFT_SEPARATOR;
+        InsertMenuItem(hSubmenu, -1, TRUE, &sep);
+    }
+
+    // ===== 中部：系统已注册程序（原有功能）=====
     HKEY hApps;
     if (RegOpenKeyW(HKEY_CLASSES_ROOT, L"Applications", &hApps) == ERROR_SUCCESS) {
         wchar_t appName[128];
@@ -803,6 +831,8 @@ static void createOpenWithMenu(int* id) {
         addContextMenuItem(hSubmenu, (*id)++, &cmiLauncherChoose, count > 0);
     }
     addContextMenuItem(hSubmenu, (*id)++, &cmiChooseProgram, false);
+    // 底部：管理文件关联（原创功能）
+    addContextMenuItem(hSubmenu, (*id)++, &cmiManageAssoc, false);
 
     MENUITEMINFO item = {0};
     item.cbSize = sizeof(MENUITEMINFO);
@@ -1551,6 +1581,7 @@ void createContentView() {
     cmiUnloadISOImage.text = lc_str.unload_iso_image;
     cmiOpenAsAdmin.text = lc_str.open_as_admin;
     cmiChooseProgram.text = lc_str.choose_program;
+    cmiManageAssoc.text = L"管理文件关联...";
     cmiProperties.text = lc_str.properties;
     cmiCopyPath.text = lc_str.copy_path;
     cmiOpenCmd.text = lc_str.open_cmd;
@@ -1838,6 +1869,275 @@ void onMenuItemOpenAsAdminClick() {
     }
 }
 
+// ============================================================================
+// 内部文件关联管理器（原创设计）
+// 配置保存在 BFM 自己的注册表，不修改 Wine 全局文件关联
+// 注册表路径：HKCU\Software\Winlator\WFM\FileAssociations\<.ext> = 程序路径
+// ============================================================================
+
+#define FA_REG_ROOT L"Software\\Winlator\\WFM\\FileAssociations"
+
+// 从文件路径获取扩展名（含点，如 ".txt"）
+static void faGetFileExt(const wchar_t* path, wchar_t* outExt, int maxLen) {
+    outExt[0] = L'\0';
+    if (!path || !path[0]) return;
+    const wchar_t* dot = wcsrchr(path, L'.');
+    const wchar_t* slash = wcsrchr(path, L'\\');
+    if (dot && (!slash || dot > slash)) {
+        wcsncpy_s(outExt, maxLen, dot, _TRUNCATE);
+        for (wchar_t* p = outExt; *p; p++) *p = towlower(*p);
+    }
+}
+
+// 获取文件类型关联的程序路径，返回是否找到
+static bool faGetAssociation(const wchar_t* ext, wchar_t* outExe, int maxLen) {
+    outExe[0] = L'\0';
+    if (!ext || !ext[0]) return false;
+    HKEY hKey;
+    wchar_t subKey[512];
+    swprintf_s(subKey, 512, L"%ls\\%ls", FA_REG_ROOT, ext);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, subKey, 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+        return false;
+    DWORD cb = (DWORD)(maxLen * sizeof(wchar_t));
+    LRESULT r = RegQueryValueExW(hKey, L"Program", NULL, NULL, (LPBYTE)outExe, &cb);
+    RegCloseKey(hKey);
+    if (r != ERROR_SUCCESS || !outExe[0]) return false;
+    return isPathExists(outExe);
+}
+
+// 设置文件类型关联
+static bool faSetAssociation(const wchar_t* ext, const wchar_t* exePath) {
+    if (!ext || !ext[0] || !exePath || !exePath[0]) return false;
+    HKEY hKey;
+    wchar_t subKey[512];
+    swprintf_s(subKey, 512, L"%ls\\%ls", FA_REG_ROOT, ext);
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, subKey, 0, NULL, 0, KEY_SET_VALUE, NULL, &hKey, NULL) != ERROR_SUCCESS)
+        return false;
+    LRESULT r = RegSetValueExW(hKey, L"Program", 0, REG_SZ, (const BYTE*)exePath, (wcslen(exePath) + 1) * sizeof(wchar_t));
+    RegCloseKey(hKey);
+    return r == ERROR_SUCCESS;
+}
+
+// 删除文件类型关联
+static bool faRemoveAssociation(const wchar_t* ext) {
+    if (!ext || !ext[0]) return false;
+    wchar_t subKey[512];
+    swprintf_s(subKey, 512, L"%ls\\%ls", FA_REG_ROOT, ext);
+    return RegDeleteKeyW(HKEY_CURRENT_USER, subKey) == ERROR_SUCCESS;
+}
+
+// 用关联程序打开文件
+static void faOpenWithAssociation(const wchar_t* filePath, const wchar_t* exePath) {
+    wchar_t params[MAX_PATH + 8] = {0};
+    swprintf_s(params, MAX_PATH + 8, L"\"%ls\"", filePath);
+    wchar_t workDir[MAX_PATH] = {0};
+    getParentDirFromPath(exePath, workDir);
+    ShellExecuteW(hwndMain, L"open", exePath, params, workDir[0] ? workDir : NULL, SW_SHOW);
+}
+
+// 文件关联管理器窗口状态
+typedef struct {
+    HWND hwnd;
+    HWND hwndList;
+    HWND hwndPathLabel;
+    HWND hwndBrowse;
+    HWND hwndSet;
+    HWND hwndRemove;
+    HWND hwndClose;
+    wchar_t selectedExt[32];
+} FaManagerState;
+
+static FaManagerState* g_faManager = NULL;
+
+// 刷新关联列表
+static void faManagerRefreshList(FaManagerState* s) {
+    if (!s || !s->hwndList) return;
+    SendMessageW(s->hwndList, LB_RESETCONTENT, 0, 0);
+    HKEY hRoot;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, FA_REG_ROOT, 0, KEY_READ, &hRoot) != ERROR_SUCCESS) return;
+    wchar_t extName[64];
+    DWORD i = 0, len;
+    while (1) {
+        len = 64;
+        if (RegEnumKeyExW(hRoot, i++, extName, &len, NULL, NULL, NULL, NULL) != ERROR_SUCCESS) break;
+        wchar_t exePath[MAX_PATH] = {0};
+        if (faGetAssociation(extName, exePath, MAX_PATH)) {
+            wchar_t* exeName = wcsrchr(exePath, L'\\');
+            exeName = exeName ? exeName + 1 : exePath;
+            wchar_t item[512];
+            swprintf_s(item, 512, L"%ls  →  %ls", extName, exeName);
+            int idx = (int)SendMessageW(s->hwndList, LB_ADDSTRING, 0, (LPARAM)item);
+            SendMessageW(s->hwndList, LB_SETITEMDATA, idx, (LPARAM)wcsdup(extName));
+        }
+    }
+    RegCloseKey(hRoot);
+}
+
+// 文件关联管理器窗口过程
+static LRESULT CALLBACK faManagerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    FaManagerState* s = g_faManager;
+    if (!s) return DefWindowProcW(hwnd, msg, wParam, lParam);
+    switch (msg) {
+        case WM_COMMAND: {
+            WORD id = LOWORD(wParam);
+            HWND ctrl = (HWND)lParam;
+            if (ctrl == s->hwndList && HIWORD(wParam) == LBN_SELCHANGE) {
+                int sel = (int)SendMessageW(s->hwndList, LB_GETCURSEL, 0, 0);
+                if (sel >= 0) {
+                    wchar_t* ext = (wchar_t*)SendMessageW(s->hwndList, LB_GETITEMDATA, sel, 0);
+                    if (ext) {
+                        wcsncpy_s(s->selectedExt, 32, ext, _TRUNCATE);
+                        wchar_t exePath[MAX_PATH] = {0};
+                        if (faGetAssociation(ext, exePath, MAX_PATH)) {
+                            SetWindowTextW(s->hwndPathLabel, exePath);
+                        }
+                    }
+                }
+            } else if (id == 1001) {  // 浏览
+                OPENFILENAMEW ofn = {0};
+                wchar_t exePath[MAX_PATH] = {0};
+                ofn.lStructSize = sizeof(OPENFILENAMEW);
+                ofn.hwndOwner = hwnd;
+                ofn.lpstrFilter = L"Programs (*.exe)\0*.exe\0All Files (*.*)\0*.*\0";
+                ofn.lpstrFile = exePath;
+                ofn.nMaxFile = MAX_PATH;
+                ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                ofn.lpstrTitle = L"选择程序";
+                typedef BOOL (WINAPI *PFN_GetOpenFileNameW)(LPOPENFILENAMEW);
+                HMODULE hCd = LoadLibraryW(L"comdlg32.dll");
+                if (hCd) {
+                    PFN_GetOpenFileNameW pfn = (PFN_GetOpenFileNameW)GetProcAddress(hCd, "GetOpenFileNameW");
+                    if (pfn && pfn(&ofn)) {
+                        SetWindowTextW(s->hwndPathLabel, exePath);
+                    }
+                    FreeLibrary(hCd);
+                }
+            } else if (id == 1002) {  // 设置/更新关联
+                if (!s->selectedExt[0]) {
+                    MessageBoxW(hwnd, L"请先在列表中选择一个文件类型，或点击添加新关联", L"提示", MB_OK | MB_ICONINFORMATION);
+                    break;
+                }
+                wchar_t exePath[MAX_PATH] = {0};
+                GetWindowTextW(s->hwndPathLabel, exePath, MAX_PATH);
+                if (!exePath[0] || !isPathExists(exePath)) {
+                    MessageBoxW(hwnd, L"请先选择一个有效的程序文件", L"错误", MB_OK | MB_ICONERROR);
+                    break;
+                }
+                if (faSetAssociation(s->selectedExt, exePath)) {
+                    MessageBoxW(hwnd, L"关联已保存", L"成功", MB_OK | MB_ICONINFORMATION);
+                    faManagerRefreshList(s);
+                } else {
+                    MessageBoxW(hwnd, L"保存失败", L"错误", MB_OK | MB_ICONERROR);
+                }
+            } else if (id == 1003) {  // 删除关联
+                if (!s->selectedExt[0]) {
+                    MessageBoxW(hwnd, L"请先选择要删除的文件类型", L"提示", MB_OK | MB_ICONINFORMATION);
+                    break;
+                }
+                if (MessageBoxW(hwnd, L"确定要删除该文件类型的关联吗？", L"确认", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                    faRemoveAssociation(s->selectedExt);
+                    s->selectedExt[0] = L'\0';
+                    SetWindowTextW(s->hwndPathLabel, L"");
+                    faManagerRefreshList(s);
+                }
+            } else if (id == 1004) {  // 添加新关联
+                wchar_t* input = InputDialog(L"添加新文件关联", L"输入扩展名（如 .txt）：", L"", false);
+                if (input && input[0]) {
+                    wchar_t ext[32] = {0};
+                    wcsncpy_s(ext, 32, input, _TRUNCATE);
+                    for (wchar_t* p = ext; *p; p++) *p = towlower(*p);
+                    if (ext[0] != L'.') {
+                        wchar_t tmp[32];
+                        swprintf_s(tmp, 32, L".%ls", ext);
+                        wcsncpy_s(ext, 32, tmp, _TRUNCATE);
+                    }
+                    wcsncpy_s(s->selectedExt, 32, ext, _TRUNCATE);
+                    SetWindowTextW(s->hwndPathLabel, L"");
+                    faManagerRefreshList(s);
+                    MessageBoxW(hwnd, L"已添加文件类型，请在右侧选择程序后点击保存", L"提示", MB_OK | MB_ICONINFORMATION);
+                }
+                if (input) free(input);
+            } else if (id == 1005) {  // 关闭
+                DestroyWindow(hwnd);
+            }
+            break;
+        }
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            break;
+        case WM_DESTROY:
+            if (g_faManager) {
+                free(g_faManager);
+                g_faManager = NULL;
+            }
+            break;
+        default:
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+// 显示文件关联管理器
+static void showAssociationManager(void) {
+    if (g_faManager) {
+        SetForegroundWindow(g_faManager->hwnd);
+        return;
+    }
+    static bool s_classRegistered = false;
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = {0};
+        wc.cbSize = sizeof(WNDCLASSEXW);
+        wc.lpfnWndProc = faManagerWndProc;
+        wc.hInstance = GetModuleHandleW(NULL);
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"BFM_AssocManager";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
+    g_faManager = (FaManagerState*)calloc(1, sizeof(FaManagerState));
+    if (!g_faManager) return;
+    int winW = 520, winH = 420;
+    g_faManager->hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"BFM_AssocManager",
+        L"文件关联管理器", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, winW, winH,
+        hwndMain, NULL, GetModuleHandleW(NULL), NULL);
+    if (!g_faManager->hwnd) { free(g_faManager); g_faManager = NULL; return; }
+    // 左侧列表
+    CreateWindowW(L"STATIC", L"已关联的文件类型：", WS_CHILD | WS_VISIBLE,
+        12, 10, 240, 20, g_faManager->hwnd, NULL, GetModuleHandleW(NULL), NULL);
+    g_faManager->hwndList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
+        12, 35, 240, 300, g_faManager->hwnd, (HMENU)1000, GetModuleHandleW(NULL), NULL);
+    // 右侧
+    CreateWindowW(L"STATIC", L"关联程序路径：", WS_CHILD | WS_VISIBLE,
+        270, 10, 220, 20, g_faManager->hwnd, NULL, GetModuleHandleW(NULL), NULL);
+    g_faManager->hwndPathLabel = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC", L"",
+        WS_CHILD | WS_VISIBLE, 270, 35, 220, 25, g_faManager->hwnd, NULL, GetModuleHandleW(NULL), NULL);
+    g_faManager->hwndBrowse = CreateWindowW(L"BUTTON", L"浏览...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        270, 70, 100, 28, g_faManager->hwnd, (HMENU)1001, GetModuleHandleW(NULL), NULL);
+    g_faManager->hwndSet = CreateWindowW(L"BUTTON", L"保存关联", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        380, 70, 110, 28, g_faManager->hwnd, (HMENU)1002, GetModuleHandleW(NULL), NULL);
+    g_faManager->hwndRemove = CreateWindowW(L"BUTTON", L"删除选中", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        270, 108, 100, 28, g_faManager->hwnd, (HMENU)1003, GetModuleHandleW(NULL), NULL);
+    CreateWindowW(L"BUTTON", L"添加新关联", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        380, 108, 110, 28, g_faManager->hwnd, (HMENU)1004, GetModuleHandleW(NULL), NULL);
+    // 说明文字
+    CreateWindowW(L"STATIC", L"说明：\n1. 点击「添加新关联」输入扩展名\n2. 点击「浏览」选择程序\n3. 点击「保存关联」生效\n4. 关联仅在 BFM 内部生效，不修改系统全局设置",
+        WS_CHILD | WS_VISIBLE, 270, 150, 220, 120, g_faManager->hwnd, NULL, GetModuleHandleW(NULL), NULL);
+    // 关闭按钮
+    g_faManager->hwndClose = CreateWindowW(L"BUTTON", L"关闭", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        420, 345, 70, 28, g_faManager->hwnd, (HMENU)1005, GetModuleHandleW(NULL), NULL);
+    faManagerRefreshList(g_faManager);
+    ShowWindow(g_faManager->hwnd, SW_SHOW);
+    UpdateWindow(g_faManager->hwnd);
+}
+
+// 右键菜单：打开文件关联管理器
+static void onMenuItemManageAssocClick(void) {
+    showAssociationManager();
+}
+
 void onMenuItemOpenWithClick() {
     if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
     wchar_t filePath[MAX_PATH] = {0};
@@ -1860,9 +2160,22 @@ void onMenuItemOpenWithClick() {
     if (hCd) {
         PFN_GetOpenFileNameW pfn = (PFN_GetOpenFileNameW)GetProcAddress(hCd, "GetOpenFileNameW");
         if (pfn && pfn(&ofn)) {
-            wchar_t params[MAX_PATH + 8] = {0};
-            swprintf_s(params, MAX_PATH + 8, L"\"%ls\"", filePath);
-            ShellExecuteW(hwndMain, L"open", exePath, params, NULL, SW_SHOW);
+            // 先用选中的程序打开文件
+            faOpenWithAssociation(filePath, exePath);
+            // 询问是否始终用此程序打开该类型文件
+            wchar_t fileExt[32] = {0};
+            faGetFileExt(filePath, fileExt, 32);
+            if (fileExt[0]) {
+                wchar_t* exeName = wcsrchr(exePath, L'\\');
+                exeName = exeName ? exeName + 1 : exePath;
+                wchar_t msg[512];
+                swprintf_s(msg, 512, L"是否始终用 %ls 打开 %ls 类型的文件？\n\n（关联仅在 BFM 内部生效，不修改系统全局设置）", exeName, fileExt);
+                if (MessageBoxW(hwndMain, msg, L"设置默认打开方式", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                    if (faSetAssociation(fileExt, exePath)) {
+                        MessageBoxW(hwndMain, L"文件关联已保存", L"成功", MB_OK | MB_ICONINFORMATION);
+                    }
+                }
+            }
         }
         FreeLibrary(hCd);
     }
