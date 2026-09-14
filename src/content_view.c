@@ -82,6 +82,8 @@ static IDropTarget* createDropTarget(void);
 static void onMenuItemExtractIconClick(void);
 static void showIconInspector(const wchar_t* filePath);
 static void onMenuItemManageAssocClick(void);
+static void faGetFileExt(const wchar_t* path, wchar_t* outExt, int maxLen);
+static bool faGetAssociation(const wchar_t* ext, wchar_t* outExe, int maxLen);
 static void onMenuItemMD5Click(void);
 static void onMenuItemViewTextClick(void);
 static void onMenuItemBatchRenameClick(void);
