@@ -1,0 +1,110 @@
+name: Sync Upstream
+
+# 自动同步上游 The412Banner/banner-file-manager 到本仓库 main
+# 策略：src/ 全部保留本地定制（中文化/双栏/收藏/diff 等），只跟随上游的
+#       include/、res/、docs/ 等非核心资源与新增文件
+#
+# Why:  bfm-zh 是 fork 后深度定制的中文版，不能直接覆盖合并
+# What: 本工作流自动 fetch 上游 → merge（冲突一律保留本地）→ push main
+# How:  删除本工作流即停止同步；手动触发也可在 Actions 页点 Run workflow
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每天 UTC 02:00（北京时间 10:00）自动检查上游更新
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置 git 身份
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: 添加并拉取上游
+        run: |
+          git remote add upstream https://github.com/The412Banner/banner-file-manager.git
+          git fetch upstream main
+          echo "上游最新提交:"
+          git log --oneline -1 upstream/main
+
+      - name: 检查工作区是否干净
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::工作区有未提交改动，中止同步（请先提交或还原本地改动）"
+            exit 1
+          fi
+
+      - name: 检查是否有新提交需要同步
+        run: |
+          BEHIND=$(git rev-list --count HEAD..upstream/main 2>/dev/null || echo 0)
+          echo "落后上游提交数: $BEHIND"
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "已是最新，无需同步"
+            echo "NO_UPDATE=true" >> "$GITHUB_ENV"
+          else
+            echo "NO_UPDATE=false" >> "$GITHUB_ENV"
+            # 记录合并前的本地 HEAD（用于合并后精确恢复本地定制文件，兼容 fast-forward 场景）
+            echo "BEFORE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          fi
+
+      - name: 合并上游（冲突一律保留本地定制）
+        if: env.NO_UPDATE == 'false'
+        run: |
+          set +e
+          # -X ours：双方都修改的文件一律保留本地版本（src/ 定制不丢失）
+          # 上游新增文件、上游单独修改的文件会自动合入
+          git merge --no-edit -X ours upstream/main > merge.log 2>&1
+          MERGE_EXIT=$?
+          cat merge.log | tail -20
+          if [ $MERGE_EXIT -ne 0 ]; then
+            echo "::warning::合并产生冲突，强制保留本地版本"
+            git checkout --ours .
+            git add -A
+            git commit --no-edit -m "chore: resolve upstream sync conflicts (keep local)" || true
+          fi
+
+      - name: 确保本地定制文件保持本地版本
+        if: env.NO_UPDATE == 'false'
+        run: |
+          # src/ 全部是本地深度定制，任何情况下不回退到上游版本
+          # 说明：merge -X ours 已保证冲突时用本地；这里兜底覆盖"本地未改但
+          #       上游改了"的情况（防止上游旧版覆盖我们已在新版做过的修改）
+          # 恢复源用合并前的 BEFORE_SHA，精确指向本地原 HEAD
+          for f in \
+            src/main.c src/content_view.c src/treeview.c src/navbar.c \
+            src/file_actions.c src/file_node.c src/input_dialog.c \
+            src/statusbar.c src/sizebar.c src/toolbar.c \
+            src/config.c src/diff.c src/favorites.c src/theme.c \
+            Makefile build.bat \
+            README.md CHANGELOG.md PROGRESS_LOG.md \
+            scripts/install.bat scripts/uninstall.bat scripts/使用说明.txt \
+            .github/workflows/build-x64.yml .github/workflows/release.yml; do
+            if [ -f "$f" ]; then
+              git checkout "$BEFORE_SHA" -- "$f" 2>/dev/null && echo "  保留本地: $f"
+            fi
+          done
+          # 处理上游删除了本地定制文件的情况（恢复之）
+          for f in src/config.c src/diff.c src/favorites.c src/theme.c; do
+            if [ ! -f "$f" ]; then
+              git checkout "$BEFORE_SHA" -- "$f" 2>/dev/null && echo "  恢复本地新增: $f"
+            fi
+          done
+          git add -A
+          git commit --no-edit -m "chore: keep local customizations after upstream sync" || true
+
+      - name: 推送并触发自动构建
+        if: env.NO_UPDATE == 'false'
+        run: |
+          git push origin main
+          echo "已推送，build-x64 工作流会自动触发构建 + nightly 发布"
+          git log --oneline -3

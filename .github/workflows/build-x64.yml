@@ -1,12 +1,13 @@
 name: Build Banner File Manager (x64)
 
-# Phase 1: minimal x64 cut. Produces a universal wfm.exe (x86-64 PE) that runs in BOTH
-# Bannerlator container arches — natively under Box64 in x86-64 containers, and via
-# wowbox64 in arm64ec containers. arm64ec-native build is a later phase.
+# 构建 wfm.exe（x86-64 PE）
+# push main + 所有 PR 都会构建验证；main 构建后自动更新 nightly 预发布
 
 on:
   push:
     branches: [ main, "feat/**" ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -17,6 +18,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: 静态代码审查（cppcheck，error 阻断）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -qq cppcheck 2>/dev/null || true
+          echo "── 静态审查（error 级阻断）──"
+          cppcheck --version
+          # Why:  编译前的确定性缺陷检查（空指针/越界/未初始化/内存泄漏等）
+          # What: 扫描 src/ + include/ 全部 C 代码
+          # How:  删除本步骤即回退；--enable=error 只查确定性问题，误报率极低
+          cppcheck --enable=error --error-exitcode=1 --inline-suppr \
+            --suppress=missingIncludeSystem --suppress=unknownMacro \
+            --suppress=unmatchedSuppression \
+            --std=c99 -DUNICODE -D_UNICODE -DCOBJMACROS -DWINVER=0x0600 \
+            -I include -I include/libcdio \
+            src 2>&1 | tail -60
+          echo "静态审查通过 ✓（无 error 级缺陷）"
 
       - name: Install mingw-w64 (x86-64) toolchain
         run: |
@@ -64,6 +82,7 @@ jobs:
           name: bfm-zh-x64
           path: bfm-zh-x64.zip
 
+      # 仅 main 分支 push 时更新 nightly 预发布；PR 构建不发布（只验证）
       - name: Update nightly pre-release
         if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2

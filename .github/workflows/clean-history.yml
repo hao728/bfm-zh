@@ -1,0 +1,41 @@
+name: Clean History
+
+# 一键压缩提交历史为 1 个（纯 squash，零文件变更）
+# ⚠️ 会 force push 重写历史，仅限单人仓库使用
+# ⚠️ 跑完后立即删除本文件（避免误触发）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置 git 身份
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: 压缩历史为 1 个提交（零文件变更）
+        run: |
+          # 找到根提交（第一个提交）
+          ROOT=$(git rev-list --max-parents=0 HEAD)
+          echo "根提交: $ROOT"
+          # soft reset 到根提交：所有文件保留在工作区，只是撤销中间所有提交
+          git reset --soft "$ROOT"
+          # 以根提交的信息重建一个提交（文件树与当前完全一致，零变更）
+          git commit --no-edit -m "$(git log -1 --format=%s "$ROOT")" || true
+          echo "提交历史:"
+          git log --oneline
+
+      - name: 强制推送（触发 build 自动构建）
+        run: |
+          git push origin main --force
+          echo "历史已压缩，触发自动构建"
