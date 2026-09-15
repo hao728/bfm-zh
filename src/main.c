@@ -511,6 +511,7 @@ HFONT getUIFont(void) {
 // 原因：主区域控件使用 getUIFont()（11pt）而菜单/标题栏使用系统默认字体（Bionic下偏小）。
 // 影响范围：仅修改 NONCLIENTMETRICS 的菜单与标题字体高度，字体名保持系统默认。
 // 回滚：删除本函数调用即可恢复系统默认菜单字体。
+/** Enlarges the system menu and caption fonts to match the application UI. */
 static void boostSystemFonts(void) {
     NONCLIENTMETRICSW ncm;
     ZeroMemory(&ncm, sizeof(ncm));
@@ -1472,6 +1473,7 @@ static void createMainMenu() {
     if (hmOld) DestroyMenu(hmOld);
 }
 
+/** Initializes the application, creates its main window, and runs the message loop. */
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int nCmdShow) {
     int numArgs;
     wchar_t** args = CommandLineToArgvW(GetCommandLineW(), &numArgs);

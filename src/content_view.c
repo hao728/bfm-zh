@@ -1662,6 +1662,7 @@ static HWND createOneContentView() {
     return hwnd;
 }
 
+/** Creates the content panes and initializes their context-menu entries. */
 void createContentView() {
     cmiOpen.text = lc_str.open;
     cmiEdit.text = lc_str.edit;
@@ -2458,6 +2459,7 @@ struct LauncherArg {
     wchar_t locale[32];      // locale for app-localized launch, e.g. "ja_JP.UTF-8" (empty = inherit)
 };
 
+/** Launches the selected application on a worker thread and releases its arguments. */
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
     if (a->boostMode >= 0) {
@@ -3322,6 +3324,7 @@ static void sortItems(struct Pane* p) {
     }
 }
 
+/** Rebuilds the visible list items and status information for a content pane. */
 static void refreshPane(struct Pane* p) {
     // 空指针保护：防止切换视图/磁盘时崩溃
     if (!p || !p->hwndList || !p->currPath) return;
