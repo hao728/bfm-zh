@@ -1,104 +1,106 @@
-# Banner File Manager — Progress Log
+# BFM-Zh — Winlator 容器专用文件管理器
 
-Fork of brunodev85/wfm, rebranded as **Banner File Manager (BFM)**, shipped as `wfm.exe`
-(universal x64 — runs in Box64, wowbox64, and FEXCore containers). Feature branch:
-`feat/dual-pane`.
+> 基于 [Banner File Manager](https://github.com/The412Banner/banner-file-manager) 的深度增强分支，专为 Android Wine 容器场景设计。
 
-## Phase 1 — Crash fix (base)
-Replaced Wine-shell32-crashing `SHFileOperation` copy/move/delete with native
-`CopyFileEx`/`MoveFileEx`/`DeleteFile` + manual recursion. Rebranded. **Device-proven.**
+## 这个版本有什么不同
 
-## Phase 3 — Dual-pane split view
-Refactored `content_view.c` around a per-pane `Pane` struct (both list views live at once;
-notify/search resolve pane by `hwndFrom`). View ▸ Split View. Active-pane accent frame.
-Copy in one pane, paste into the other. **Device-proven (render + active highlight).**
+原版 WFM/BFM 只解决了"容器里能管文件"的基本需求。这个分支针对 **Winlator 实际使用场景**做了大量针对性增强——不是简单的功能堆砌，而是每个功能都解决一个真实痛点：
 
-## Phase 4 — Context menu + Win11 restyle
-- **Open as administrator** (`runas` verb).
-- **Open with ▸** submenu: registered apps (`HKCR\Applications`) + "Choose another program…"
-  (Wine Open-With dialog).
-- Segoe UI font, full-row select, double-buffer.
-- Hardened context-menu items to individually-allocated pointers (no use-after-realloc).
+### 游戏玩家向
 
-## Phase 5 — APK bake
-Baked `wfm.exe` into `container_pattern_common.tzst` so the container's built-in file
-manager ships our build (was reverting to stock on boot). Delivered full APK.
+| 痛点 | 解决方案 |
+|------|----------|
+| 游戏启动慢、爆内存闪退 | **加速运行**（实验性）：预读取exe + 清理内存 + 提升进程优先级，均衡/激进双模式。Wine下效果受Box64翻译开销限制，不保证所有游戏都有明显改善 |
+| Galgame 日文乱码 | **转区启动**（实验性）：环境变量+注册表双方式，日文/简中/繁中/英文。注册表方式启动后5秒自动恢复，可能影响容器内其他程序 |
+| 游戏需要特定图形API | **参数启动**：13个通用预设（DX11/DX9/Vulkan/OpenGL/窗口化/全屏/无边框/单线程等）。有效性取决于游戏引擎是否解析该参数 |
+| 破解补丁需要拖文件到程序 | **OLE拖拽**（实验性）：文件可拖到外部程序窗口。部分程序可能不响应或闪退，取决于目标程序的拖放实现 |
 
-## Phase 6 — QoL batch
-Keyboard shortcuts (F2/Del/F5/F6/Backspace/Enter/Ctrl+C·X·V·A), Show Hidden Files toggle,
-byte-accurate copy **progress bar** (+ cancel), status-bar total **size**, **Properties**
-dialog.
+### 日常使用向
 
-## Phase 7 — Per-pane path bars + fixes
-Each pane shows its own path (active highlighted, click to activate). Fixed early
-column-width/scroll issues.
+| 痛点 | 解决方案 |
+|------|----------|
+| 不同容器DPI字体模糊 | **字体大小4档可调**（9/11/13/15pt），比自适应DPI更直接 |
+| 大图标长文件名被截断 | **自定义绘制**：多行显示+省略号，不再是一行截断 |
+| 打开方式修改全局注册表 | **文件关联管理器**：仅存BFM注册表，不干预Wine全局 |
+| 想知道exe里有哪些图标 | **图标检查器**：6尺寸网格预览（16-256px），透明棋盘格，保存ICO/BMP |
+| 双面板操作不同步 | **跨面板拖拽** + 拖拽后自动刷新两个面板 |
 
-## Phase 8–11 — Dark-mode cleanup (owner-draw)
-Wine renders several comctl sub-controls light regardless of theme; owner-drew each dark:
-column **header** (Ph8), **status bar** (Ph9), **search box** (Ph10), **navbar buttons**
-(breadcrumb/go/refresh/search, Ph11). Also auto-fit columns → no horizontal scrollbar.
+### 稳定性向
 
-## Phase 12 — Theme awareness (light + dark)
-The owner-drawn controls were hardcoded dark, which broke **light mode**. Added theme
-detection (`isDarkMode` from window-bg luminance) and `themeFaceBg/Text/Line` +
-`themeFieldBg/Text` + `themePlaceholder` helpers: dark values in dark mode, system colors
-in light mode. Applied to header, status bar, search box, navbar buttons, pane labels, and
-the split frame. Repaints on `WM_SYSCOLORCHANGE` for runtime theme switches.
+- 大目录加载优化：虚拟列表 + 批量插入 + 5万项上限，防止卡死
+- 设置全量持久化：视图样式/排序/隐藏文件/双面板/字体大小/存储显示，全部保存注册表
+- 任务管理器直接调用 Winlator 自带 `taskmgr.exe`，不重复造轮子
 
-## Known remaining
-- Vertical scrollbar trough still light in dark mode (Wine scrollbar theming; only on overflow).
-- Open-With could also read the file extension's own associations (OpenWithProgids/List).
-- Optional: fully-editable per-pane address+search bars (currently shared top bar edits active pane).
+## 功能一览
 
-## Phase 13 — Dark non-client scrollbars (post-1.0.0)
-Branch `fix/dark-scrollbars`, CI green run `29817440567`, build **297984 B**.
-Device screenshots showed white bars under the content list in **both** single and split
-view (and down the right edge) — the last known-light element, previously deferred.
-Cause: Wine paints a window's own (non-client) scrollbars with the classic light 3D look
-regardless of the container theme, and there is no message to recolour them
-(`WM_CTLCOLORSCROLLBAR` only covers standalone scrollbar controls).
-- `main.c`: `themePaintScrollbars(HWND)` repaints a window's scrollbars over its window DC —
-  trough RGB(38,38,38), thumb RGB(95,95,95), owner-drawn arrow glyphs, plus the corner square
-  where a horizontal and a vertical bar meet. Geometry from `GetScrollBarInfo`, with a
-  `GetScrollInfo` fallback if Wine reports no usable thumb. Light mode returns early
-  (system rendering already matches).
-- `themeScrollbarsNeedRepaint(UINT)` whitelist: WM_NCPAINT alone is not enough because Wine
-  draws from inside the control's own handling (`SetScrollInfo` paints immediately) and from
-  the thumb-drag modal loop. Subclasses repaint after layout/scroll/focus messages and a few
-  LVM_/TVM_ messages; hot query messages are excluded so nothing repaints in a loop.
-- `content_view.c` `ContentViewWndProc` and a new thin `TreeviewWndProc` subclass in
-  `treeview.c` (the tree was not subclassed before) call it after the original proc.
+### 启动增强（游戏玩家向）
+- **加速运行**：预读取exe + 内存清理 + 进程优先级提升，均衡/激进双模式
+- **转区启动**：日文/简中/繁中/英文，环境变量+注册表双方式
+- **参数启动**：13个通用预设（窗口化/全屏/无边框/DX11/DX9/Vulkan/OpenGL/单线程/跳过开场/安全模式等）
+- **自适应窗口/全屏**：Wine虚拟桌面，自定义分辨率
 
-### 1.1.0 release
-Phase 13 merged to `main` (fast-forward from `fc2e6aa`). `APP_VERSION` -> **1.1.0**.
-Also in this release: the shared UI font dropped a step (Segoe UI -15 -> -14).
+### 右键菜单（完整功能）
+- **文件操作**：打开 / 以管理员身份打开 / 编辑 / 剪切 / 复制 / 粘贴 / 粘贴快捷方式 / 创建快捷方式 / 删除 / 重命名 / 属性
+- **压缩包**：解压到当前目录 / 解压到新建文件夹（需容器内安装7z，支持zip/7z/rar等）
+- **新建**：文件夹 / 文件 / 文本文档 / 批处理 / 注册表项
+- **实用工具**：复制路径 / 打开CMD / 文件夹大小 / 复制到 / 移动到 / 批量重命名 / 查看文本 / 提取图标
+- **哈希计算**：MD5 / SHA1 / SHA256
+- **镜像**：挂载ISO / 卸载ISO
+- **收藏**：添加到收藏夹
+- **双面板**：对比两个面板内容
 
-## 1.2.0 release
+### 原创工具
+- **图标检查器**：exe/dll 6尺寸图标预览（16-256px），透明棋盘格，保存ICO/BMP
+- **文件关联管理器**：仅存BFM注册表，不干预Wine全局
 
-Two things merged to `main`, then `APP_VERSION` -> **1.2.0**.
+### 界面与视图
+- **4种视图**：大图标（多行文件名）/ 小图标 / 列表 / 详细信息
+- **字体大小4档可调**（9/11/13/15pt）
+- **双面板分屏** + 跨面板拖拽 + 拖拽后自动刷新
+- **预览窗格**：图片/文本快速预览，显示类型/大小/修改时间
+- **存储信息开关**：同时控制运行内存+磁盘容量条+可用空间
+- **5种语言**：简中/繁中/英文/葡语/俄语，切换后右键同步刷新
+- **右键空白区域刷新**
 
-### Large-folder loading & scrolling performance
-Opening and scrolling large folders no longer stalls.
-- `file_node.c`: `buildChildNodes` now captures each file's size and last-write time from
-  the `WIN32_FIND_DATA` the enumeration already returns, storing them on the `FileNode`.
-  `content_view.c` `fillFileInfo` drops from a `GetFileAttributesEx` per file to a plain
-  copy — a folder of N files no longer does N synchronous stat round-trips at load.
-- `content_view.c`: icon + type-name resolution (a full `SHGetFileInfo` shell lookup under
-  Wine) is cached — a resolve-once folder icon, an extension -> (icon, type name) cache, and
-  an exe/lnk path -> icon cache (those carry per-file icons). Filled lazily from
-  `LVN_GETDISPINFO`, kept across navigation, so each distinct extension costs one lookup.
-Both sit under the existing virtual (`LVS_OWNERDATA`) list and the dual-pane `Pane` model.
+### 系统集成
+- ISO/BIN/CUE镜像挂载（内置libcdio）
+- 任务管理器（调用Winlator自带taskmgr.exe）
+- 设置全量持久化（视图/排序/隐藏文件/双面板/字体/存储显示）
+- 大目录加载优化（虚拟列表+批量插入，防止大目录卡死）
+- OLE拖拽（实验性）：文件可拖到外部程序窗口，部分程序可能不响应
 
-### Version metadata
-The binary now carries a standard `VS_VERSION_INFO` resource (`res/resource.rc`) — company,
-product, file/product version, and a GPL-3.0 + BrunoSX-origin copyright — with the version
-defined once in `include/resource.h` and shared by the resource and the About dialog. This
-fixes the empty Windows file-properties dialog and clears a reputation/ML antivirus
-false-positive that an unsigned, metadata-less executable was drawing.
+> ⚠️ **实验性功能**（效果因容器/游戏而异，不保证稳定）：
+> - 加速运行：Wine下受Box64翻译开销限制，部分游戏可能无明显改善
+> - 转区启动：注册表方式可能影响容器内其他程序（5秒后自动恢复）
+> - 参数启动：有效性取决于游戏引擎是否解析该参数
+> - OLE拖拽到外部程序：部分程序可能不响应或闪退
+> - 压缩包解压：需容器内安装7z，Bionic等精简容器可能没有
 
-## 1.2.1 release
-Added **file attributes** to the Properties dialog (`IDD_PROPERTIES`): **Read-only** and
-**Hidden** checkboxes that reflect the file's current attributes on open and apply them via
-`SetFileAttributesW` on OK (Cancel leaves them untouched). Lets users protect config files
-(e.g. Unreal `Engine.ini`) so the game can't regenerate or delete them — Wine honors the
-read-only attribute for both writes and deletes. `APP_VERSION` -> **1.2.1**.
+## 截图
+
+| 主界面 | 大图标视图 | 右键菜单 |
+|:---:|:---:|:---:|
+| ![主界面](docs/preview-main.jpg) | ![大图标](docs/preview-largeicon.jpg) | ![右键](docs/preview-context.jpg) |
+
+| 双面板 | 图标检查器 | 文件关联管理器 |
+|:---:|:---:|:---:|
+| ![双面板](docs/preview-dual.jpg) | ![图标检查器](docs/preview-icon.jpg) | ![文件关联](docs/preview-assoc.jpg) |
+
+## 安装
+
+**一键脚本**：解压后运行 `安装.bat`（自动备份→覆盖→重启WFM），还原运行 `还原.bat`。
+
+**手动覆盖**：将 `wfm.exe` + `libcdio.dll` 复制到 `C:\windows\` 覆盖，重启WFM。
+
+## 构建
+
+```sh
+CC=x86_64-w64-mingw32-gcc
+CFLAGS="-O2 -std=c99 -DUNICODE -D_UNICODE -DCOBJMACROS -DWINVER=0x0600 -Wall"
+SRCS="main theme config favorites diff content_view toolbar navbar treeview sizebar statusbar file_node file_actions input_dialog"
+# 编译每个源文件后链接，链接 libcdio.dll + comctl32/gdi32/ole32 等系统库
+```
+
+## 开源协议
+
+GPL-3.0-or-later。上游 [The412Banner/banner-file-manager](https://github.com/The412Banner/banner-file-manager)，原始 WFM 版权声明见 [LICENSE.WFM](LICENSE.WFM)。
