@@ -183,6 +183,7 @@ static struct ContextMenuItem* menuById[MAX_MENU_IDS];
 static struct Pane panes[NUM_PANES] = {0};
 static int activeIdx = 0;
 static bool splitOn = false;
+static bool showMemoryInStatusbar = true;  // 状态栏内存显示开关，默认开启
 static struct Pane* g_sortPane = NULL;
 
 static struct FileNode** selectedItems = NULL;
@@ -240,6 +241,22 @@ int cvActiveIdx() {
 
 bool cvSplitOn() {
     return splitOn;
+}
+
+// 切换状态栏内存显示，并保存到注册表
+void cvToggleMemoryDisplay(void) {
+    showMemoryInStatusbar = !showMemoryInStatusbar;
+    HKEY hkey;
+    if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkey) == ERROR_SUCCESS) {
+        DWORD val = showMemoryInStatusbar ? 1 : 0;
+        RegSetValueExW(hkey, L"ShowMemory", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+        RegCloseKey(hkey);
+    }
+    updateStatusbar(activePane());
+}
+
+bool cvMemoryVisible(void) {
+    return showMemoryInStatusbar;
 }
 
 bool cvIsContentView(HWND h) {
@@ -353,16 +370,18 @@ static void updateStatusbar(struct Pane* p) {
     wchar_t sizeStr[32] = {0};
     formatFileSize(p->totalSize, sizeStr);
 
-    // 内存使用
+    // 内存使用（可通过视图菜单开关控制）
 
     wchar_t memStr[48] = {0};
-    MEMORYSTATUSEX msx = {0};
-    msx.dwLength = sizeof(msx);
-    if (GlobalMemoryStatusEx(&msx)) {
-        wchar_t used[16], total[16];
-        formatFileSize(msx.ullTotalPhys - msx.ullAvailPhys, used);
-        formatFileSize(msx.ullTotalPhys, total);
-        swprintf_s(memStr, 48, L"  |  %ls: %ls/%ls", lc_str.memory, used, total);
+    if (showMemoryInStatusbar) {
+        MEMORYSTATUSEX msx = {0};
+        msx.dwLength = sizeof(msx);
+        if (GlobalMemoryStatusEx(&msx)) {
+            wchar_t used[16], total[16];
+            formatFileSize(msx.ullTotalPhys - msx.ullAvailPhys, used);
+            formatFileSize(msx.ullTotalPhys, total);
+            swprintf_s(memStr, 48, L"  |  %ls: %ls/%ls", lc_str.memory, used, total);
+        }
     }
 
     // 当前驱动器的可用空间
@@ -1042,8 +1061,8 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     int barX = sizeX + 4;
                     int barW = (w2 - 8) * 42 / 100;
                     if (barW < 46) barW = 46;
-                    int barY = rc.top + (rowH - 12) / 2;
-                    int barH = 12;
+                    int barH = 16;  // 增大高度，确保百分比文字清晰居中
+                    int barY = rc.top + (rowH - barH) / 2;
                     // 轨道（内凹槽）+ 1px 边框。
 
                     RECT trackR = {barX, barY, barX + barW, barY + barH};
@@ -1072,7 +1091,8 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     swprintf_s(pctText, 16, L"%d%%", (int)(pct * 100));
                     SetTextColor(hdc, RGB(255,255,255));
                     SetBkMode(hdc, TRANSPARENT);
-                    RECT pctR = {barX + 1, barY + 1, barX + barW - 1, barY + barH - 1};
+                    // 百分比文本区域精确居中，左右各留2px边距
+                    RECT pctR = {barX + 2, barY + 1, barX + barW - 2, barY + barH - 1};
                     DrawTextW(hdc, pctText, -1, &pctR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                     // 容量条右侧显示完整的 已用/总 GB。
 
@@ -1423,13 +1443,19 @@ void setViewStyle(enum ViewStyle newViewStyle) {
 
     switch (newViewStyle) {
         case STYLE_LARGE_ICON:
-            wndstyle |= LVS_ICON;
+            wndstyle |= LVS_ICON | LVS_AUTOARRANGE;
+            // 大图标视图：增大图标间距，确保文件名有足够空间显示（支持两行）
+            ListView_SetIconSpacing(p->hwndList, 140, 130);
             break;
         case STYLE_SMALL_ICON:
-            wndstyle |= LVS_SMALLICON;
+            wndstyle |= LVS_SMALLICON | LVS_AUTOARRANGE;
+            // 小图标视图：增大图标间距，确保长文件名不被截断
+            ListView_SetIconSpacing(p->hwndList, 200, 32);
             break;
         case STYLE_LIST:
-            wndstyle |= LVS_LIST;
+            wndstyle |= LVS_LIST | LVS_AUTOARRANGE;
+            // 列表视图：自动多列排列，设置合适的图标间距
+            ListView_SetIconSpacing(p->hwndList, 200, 22);
             break;
         case STYLE_DETAILS:
             wndstyle |= LVS_REPORT;
@@ -1448,6 +1474,10 @@ void setViewStyle(enum ViewStyle newViewStyle) {
         RegCloseKey(hkey);
     }
     refreshPane(p);
+    // 切换视图后强制重排图标，确保多列排列正常
+    if (newViewStyle != STYLE_DETAILS) {
+        ListView_Arrange(p->hwndList, LVA_ALIGNLEFT);
+    }
 }
 
 static void createLVColumns(HWND hwndList) {
@@ -1628,6 +1658,7 @@ void createContentView() {
     DWORD savedSort = COLUMN_NAME_IDX;
     DWORD savedHidden = 0;
     DWORD savedSplit = 0;
+    DWORD savedMemory = 1;
     HKEY hkeyView;
     if (RegOpenKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkeyView) == ERROR_SUCCESS) {
         DWORD data = 0, sz = sizeof(data);
@@ -1642,11 +1673,15 @@ void createContentView() {
         sz = sizeof(data);
         if (RegQueryValueExW(hkeyView, L"SplitView", NULL, NULL, (BYTE*)&data, &sz) == ERROR_SUCCESS)
             savedSplit = data;
+        sz = sizeof(data);
+        if (RegQueryValueExW(hkeyView, L"ShowMemory", NULL, NULL, (BYTE*)&data, &sz) == ERROR_SUCCESS)
+            savedMemory = data;
         RegCloseKey(hkeyView);
     }
 
-    // 应用显示隐藏文件设置
+    // 应用显示隐藏文件和内存显示设置
     showHiddenFiles = (savedHidden != 0);
+    showMemoryInStatusbar = (savedMemory != 0);
 
     for (int i = 0; i < NUM_PANES; i++) {
         panes[i].hwndList = createOneContentView();
@@ -3121,6 +3156,9 @@ static void sortItems(struct Pane* p) {
 }
 
 static void refreshPane(struct Pane* p) {
+    // 空指针保护：防止切换视图/磁盘时崩溃
+    if (!p || !p->hwndList || !p->currPath) return;
+
     if (p->searchData != NULL && p->searchData->active) {
         p->searchData->active = false;
         p->searchData->canceled = true;
@@ -3133,7 +3171,17 @@ static void refreshPane(struct Pane* p) {
     struct FileNode* child = p->currPath->children;
 
     int maxItems = getChildNodeCount(p->currPath);
+    if (maxItems < 0) maxItems = 0;
+    // 限制最大项目数，防止超大目录导致内存分配失败
+    if (maxItems > 50000) maxItems = 50000;
     p->items = calloc(maxItems + 1, sizeof(struct ListItem));
+    // 内存分配失败保护
+    if (!p->items) {
+        p->numItems = 0;
+        updateStatusbar(p);
+        updatePaneLabel(p);
+        return;
+    }
     int index = 0;
 
     while (child) {
