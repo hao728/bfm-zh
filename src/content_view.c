@@ -2719,8 +2719,7 @@ void onMenuItemHashSHA256Click(void) {
 
 // ============================================================================
 // 进程管理器：通过 Toolhelp32 列出运行中的进程，允许终止。
-
-// 带列表框和“终止”按钮的简单模态对话框。
+// 重写版：使用自定义窗口类，确保关闭按钮和右上角X可以正常关闭窗口。
 
 // ============================================================================
 static HWND hProcDlg = NULL;
@@ -2743,43 +2742,88 @@ static void refreshProcessList(void) {
     CloseHandle(snap);
 }
 
-void onMenuItemProcessManagerClick(void) {
-    // 在内存中构建简单的对话框模板：列表框 + 3 个按钮。
-
-    // 使用轻量级方法：手动创建弹出窗口。
-
-    HWND hwnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"#32770", lc_str.process_manager,
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
-        CW_USEDEFAULT, CW_USEDEFAULT, 420, 380, hwndMain, NULL, globalHInstance, NULL);
-    if (!hwnd) return;
-    // 列表框
-
-    CreateWindowExW(0, L"LISTBOX", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
-        10, 10, 390, 290, hwnd, (HMENU)1001, globalHInstance, NULL);
-    // 按钮
-
-    CreateWindowExW(0, L"BUTTON", lc_str.proc_kill, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        10, 310, 100, 30, hwnd, (HMENU)1002, globalHInstance, NULL);
-    CreateWindowExW(0, L"BUTTON", lc_str.proc_refresh, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        120, 310, 80, 30, hwnd, (HMENU)1003, globalHInstance, NULL);
-    CreateWindowExW(0, L"BUTTON", lc_str.proc_close, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        300, 310, 100, 30, hwnd, (HMENU)IDOK, globalHInstance, NULL);
-
-    hProcDlg = hwnd;
-    hProcList = GetDlgItem(hwnd, 1001);
-    refreshProcessList();
-
-    // 模态消息循环。
-
-    ShowWindow(hwnd, SW_SHOW);
-    MSG msg;
-    while (GetMessageW(&msg, NULL, 0, 0)) {
-        if (!IsDialogMessageW(hwnd, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+// 进程管理器窗口过程
+static LRESULT CALLBACK procManagerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_COMMAND: {
+            WORD id = LOWORD(wParam);
+            if (id == 1002) {  // 结束进程
+                int sel = (int)SendMessageW(hProcList, LB_GETCURSEL, 0, 0);
+                if (sel >= 0) {
+                    DWORD pid = (DWORD)SendMessageW(hProcList, LB_GETITEMDATA, sel, 0);
+                    HANDLE hProc = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+                    if (hProc) {
+                        TerminateProcess(hProc, 1);
+                        CloseHandle(hProc);
+                        refreshProcessList();
+                    } else {
+                        MessageBoxW(hwnd, L"无法结束该进程（权限不足）", L"错误", MB_OK | MB_ICONERROR);
+                    }
+                }
+            } else if (id == 1003) {  // 刷新
+                refreshProcessList();
+            } else if (id == IDOK || id == IDCANCEL) {  // 关闭
+                DestroyWindow(hwnd);
+            }
+            break;
         }
-        if (!IsWindow(hwnd)) break;
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            break;
+        case WM_DESTROY:
+            hProcDlg = NULL;
+            hProcList = NULL;
+            break;
+        default:
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
+    return 0;
+}
+
+void onMenuItemProcessManagerClick(void) {
+    // 如果窗口已打开，激活它而不是创建新窗口
+    if (hProcDlg && IsWindow(hProcDlg)) {
+        SetForegroundWindow(hProcDlg);
+        return;
+    }
+
+    // 注册窗口类（只注册一次）
+    static bool s_classRegistered = false;
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = {0};
+        wc.cbSize = sizeof(WNDCLASSEXW);
+        wc.lpfnWndProc = procManagerWndProc;
+        wc.hInstance = globalHInstance;
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"BFM_ProcessManager";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
+
+    hProcDlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"BFM_ProcessManager", lc_str.process_manager,
+        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, 420, 380, hwndMain, NULL, globalHInstance, NULL);
+    if (!hProcDlg) return;
+
+    // 列表框
+    hProcList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
+        10, 10, 390, 290, hProcDlg, (HMENU)1001, globalHInstance, NULL);
+    // 按钮
+    CreateWindowExW(0, L"BUTTON", lc_str.proc_kill, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        10, 310, 100, 30, hProcDlg, (HMENU)1002, globalHInstance, NULL);
+    CreateWindowExW(0, L"BUTTON", lc_str.proc_refresh, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        120, 310, 80, 30, hProcDlg, (HMENU)1003, globalHInstance, NULL);
+    CreateWindowExW(0, L"BUTTON", lc_str.proc_close, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        300, 310, 100, 30, hProcDlg, (HMENU)IDOK, globalHInstance, NULL);
+
+    refreshProcessList();
+    ShowWindow(hProcDlg, SW_SHOW);
+    UpdateWindow(hProcDlg);
+    // 确保窗口在最前面，不被主窗口遮挡
+    SetForegroundWindow(hProcDlg);
+    BringWindowToTop(hProcDlg);
 }
 
 // 右键菜单项：释放内存后通过已保存的外部启动器启动目标

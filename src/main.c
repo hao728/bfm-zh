@@ -310,6 +310,8 @@ void themePaintScrollbars(HWND hwnd) {
 
 #define THEME_SB_TIMER_ID 0x7BF1
 #define THEME_SB_TIMER_MS 10
+#define BOOST_TIP_TIMER_ID 0x7BF2
+#define BOOST_TIP_TIMER_MS 3000
 
 // 在原始窗口过程之前调用。如果消息已完全处理则返回 true。
 
@@ -515,19 +517,47 @@ HFONT getUIFont(void) {
 static HWND hBoostTip = NULL;
 static void hideBoostTip(void);
 
+// Boost tip 窗口过程：支持点击关闭
+static LRESULT CALLBACK boostTipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_LBUTTONDOWN) {
+        hideBoostTip();
+        return 0;
+    }
+    if (msg == WM_TIMER) {
+        hideBoostTip();
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
 static void showBoostTip(const wchar_t* text) {
     hideBoostTip();
+    // 注册自定义窗口类（只注册一次）
+    static bool s_tipClassRegistered = false;
+    if (!s_tipClassRegistered) {
+        WNDCLASSEXW wc = {0};
+        wc.cbSize = sizeof(WNDCLASSEXW);
+        wc.lpfnWndProc = boostTipWndProc;
+        wc.hInstance = globalHInstance;
+        wc.hCursor = LoadCursor(NULL, IDC_HAND);
+        wc.hbrBackground = (HBRUSH)(COLOR_INFOBK + 1);
+        wc.lpszClassName = L"BFM_BoostTip";
+        RegisterClassExW(&wc);
+        s_tipClassRegistered = true;
+    }
     RECT rc;
     GetClientRect(hwndMain, &rc);
     int w = 420, h = 90;
     int x = (rc.right - w) / 2;
     int y = (rc.bottom - h) / 2;
-    hBoostTip = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"STATIC", text,
+    hBoostTip = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"BFM_BoostTip", text,
         WS_POPUP | WS_VISIBLE | SS_CENTER | WS_BORDER, x, y, w, h,
         hwndMain, NULL, globalHInstance, NULL);
     if (hBoostTip) {
         HFONT f = getUIFont();
         if (f) SendMessageW(hBoostTip, WM_SETFONT, (WPARAM)f, TRUE);
+        // 设置5秒自动关闭定时器，确保游戏启动失败时也能自动隐藏
+        SetTimer(hBoostTip, 1, 5000, NULL);
     }
 }
 
@@ -1150,8 +1180,14 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             break;
         }
         case WM_USER_BOOST_DONE:
-            // 结果已在WM_USER_BOOST_RESULT中显示，这里只隐藏tip
-            // 延迟隐藏，让用户看到结果
+            // 结果已在WM_USER_BOOST_RESULT中显示，设置定时器3秒后自动隐藏
+            SetTimer(hwnd, BOOST_TIP_TIMER_ID, BOOST_TIP_TIMER_MS, NULL);
+            break;
+        case WM_TIMER:
+            if (wParam == BOOST_TIP_TIMER_ID) {
+                KillTimer(hwnd, BOOST_TIP_TIMER_ID);
+                hideBoostTip();
+            }
             break;
         case WM_SIZE: {
             resizeControls();
