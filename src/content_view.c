@@ -267,6 +267,14 @@ bool cvSplitOn() {
     return splitOn;
 }
 
+// 应用字体到所有面板的列表和路径标签（供main.c切换字体大小时调用）
+void cvApplyFont(HFONT font) {
+    for (int i = 0; i < NUM_PANES; i++) {
+        if (panes[i].hwndList) SendMessage(panes[i].hwndList, WM_SETFONT, (WPARAM)font, TRUE);
+        if (panes[i].hwndPathLabel) SendMessage(panes[i].hwndPathLabel, WM_SETFONT, (WPARAM)font, TRUE);
+    }
+}
+
 // 切换状态栏内存显示，并保存到注册表
 void cvToggleMemoryDisplay(void) {
     showMemoryInStatusbar = !showMemoryInStatusbar;
