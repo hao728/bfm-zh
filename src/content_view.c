@@ -2781,49 +2781,8 @@ static LRESULT CALLBACK procManagerWndProc(HWND hwnd, UINT msg, WPARAM wParam, L
 }
 
 void onMenuItemProcessManagerClick(void) {
-    // 如果窗口已打开，激活它而不是创建新窗口
-    if (hProcDlg && IsWindow(hProcDlg)) {
-        SetForegroundWindow(hProcDlg);
-        return;
-    }
-
-    // 注册窗口类（只注册一次）
-    static bool s_classRegistered = false;
-    if (!s_classRegistered) {
-        WNDCLASSEXW wc = {0};
-        wc.cbSize = sizeof(WNDCLASSEXW);
-        wc.lpfnWndProc = procManagerWndProc;
-        wc.hInstance = globalHInstance;
-        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-        wc.lpszClassName = L"BFM_ProcessManager";
-        RegisterClassExW(&wc);
-        s_classRegistered = true;
-    }
-
-    hProcDlg = CreateWindowExW(WS_EX_DLGMODALFRAME, L"BFM_ProcessManager", lc_str.process_manager,
-        WS_POPUP | WS_CAPTION | WS_SYSMENU,
-        CW_USEDEFAULT, CW_USEDEFAULT, 420, 380, hwndMain, NULL, globalHInstance, NULL);
-    if (!hProcDlg) return;
-
-    // 列表框
-    hProcList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
-        WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
-        10, 10, 390, 290, hProcDlg, (HMENU)1001, globalHInstance, NULL);
-    // 按钮
-    CreateWindowExW(0, L"BUTTON", lc_str.proc_kill, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        10, 310, 100, 30, hProcDlg, (HMENU)1002, globalHInstance, NULL);
-    CreateWindowExW(0, L"BUTTON", lc_str.proc_refresh, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        120, 310, 80, 30, hProcDlg, (HMENU)1003, globalHInstance, NULL);
-    CreateWindowExW(0, L"BUTTON", lc_str.proc_close, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        300, 310, 100, 30, hProcDlg, (HMENU)IDOK, globalHInstance, NULL);
-
-    refreshProcessList();
-    ShowWindow(hProcDlg, SW_SHOW);
-    UpdateWindow(hProcDlg);
-    // 确保窗口在最前面，不被主窗口遮挡
-    SetForegroundWindow(hProcDlg);
-    BringWindowToTop(hProcDlg);
+    // 直接调用 Winlator/Wine 自带的任务管理器（taskmgr.exe），信息更全
+    ShellExecuteW(hwndMain, L"open", L"taskmgr.exe", NULL, NULL, SW_SHOW);
 }
 
 // 右键菜单项：释放内存后通过已保存的外部启动器启动目标

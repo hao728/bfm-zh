@@ -517,8 +517,8 @@ HFONT getUIFont(void) {
 static HWND hBoostTip = NULL;
 static void hideBoostTip(void);
 
-// Boost tip 窗口过程：支持点击关闭
-static LRESULT CALLBACK boostTipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+// Boost tip 子类化窗口过程：支持点击关闭
+static LRESULT CALLBACK boostTipSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     if (msg == WM_LBUTTONDOWN) {
         hideBoostTip();
         return 0;
@@ -527,35 +527,25 @@ static LRESULT CALLBACK boostTipWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         hideBoostTip();
         return 0;
     }
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
 static void showBoostTip(const wchar_t* text) {
     hideBoostTip();
-    // 注册自定义窗口类（只注册一次）
-    static bool s_tipClassRegistered = false;
-    if (!s_tipClassRegistered) {
-        WNDCLASSEXW wc = {0};
-        wc.cbSize = sizeof(WNDCLASSEXW);
-        wc.lpfnWndProc = boostTipWndProc;
-        wc.hInstance = globalHInstance;
-        wc.hCursor = LoadCursor(NULL, IDC_HAND);
-        wc.hbrBackground = (HBRUSH)(COLOR_INFOBK + 1);
-        wc.lpszClassName = L"BFM_BoostTip";
-        RegisterClassExW(&wc);
-        s_tipClassRegistered = true;
-    }
     RECT rc;
     GetClientRect(hwndMain, &rc);
     int w = 420, h = 90;
     int x = (rc.right - w) / 2;
     int y = (rc.bottom - h) / 2;
-    hBoostTip = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"BFM_BoostTip", text,
+    // 使用 STATIC 类确保文字正常显示，通过子类化添加点击关闭功能
+    hBoostTip = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"STATIC", text,
         WS_POPUP | WS_VISIBLE | SS_CENTER | WS_BORDER, x, y, w, h,
         hwndMain, NULL, globalHInstance, NULL);
     if (hBoostTip) {
         HFONT f = getUIFont();
         if (f) SendMessageW(hBoostTip, WM_SETFONT, (WPARAM)f, TRUE);
+        // 子类化：添加点击关闭功能
+        SetWindowSubclass(hBoostTip, boostTipSubclassProc, 1, 0);
         // 设置5秒自动关闭定时器，确保游戏启动失败时也能自动隐藏
         SetTimer(hBoostTip, 1, 5000, NULL);
     }
