@@ -673,6 +673,15 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_VIEW_HIDDEN:
             showHiddenFiles = !showHiddenFiles;
             if (hViewMenu) CheckMenuItem(hViewMenu, ID_VIEW_HIDDEN, MF_BYCOMMAND | (showHiddenFiles ? MF_CHECKED : MF_UNCHECKED));
+            // 保存显示隐藏文件设置到注册表
+            {
+                HKEY hkeyHidden;
+                if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkeyHidden) == ERROR_SUCCESS) {
+                    DWORD val = showHiddenFiles ? 1 : 0;
+                    RegSetValueExW(hkeyHidden, L"ShowHidden", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+                    RegCloseKey(hkeyHidden);
+                }
+            }
             navigateRefresh();
             break;
         case ID_NAV_BACK: navGoBack(); break;

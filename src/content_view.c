@@ -1314,6 +1314,14 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 p->sortAscending = true;
             }
 
+            // 保存排序方式到注册表
+            HKEY hkeySort;
+            if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkeySort) == ERROR_SUCCESS) {
+                DWORD val = (DWORD)p->sortColumnIdx;
+                RegSetValueExW(hkeySort, L"SortColumn", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+                RegCloseKey(hkeySort);
+            }
+
             refreshPane(p);
             break;
         }
@@ -1614,16 +1622,31 @@ void createContentView() {
     cmiLauncherChoose.text = lc_str.launcher_choose;
     cmiDiff.text = lc_str.diff_files;
 
-    // 从注册表恢复已保存的视图样式
+    // 从注册表恢复已保存的视图样式、排序方式、隐藏文件、双面板状态
 
     DWORD savedView = STYLE_DETAILS;
+    DWORD savedSort = COLUMN_NAME_IDX;
+    DWORD savedHidden = 0;
+    DWORD savedSplit = 0;
     HKEY hkeyView;
     if (RegOpenKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkeyView) == ERROR_SUCCESS) {
         DWORD data = 0, sz = sizeof(data);
         if (RegQueryValueExW(hkeyView, L"ViewStyle", NULL, NULL, (BYTE*)&data, &sz) == ERROR_SUCCESS)
             savedView = data;
+        sz = sizeof(data);
+        if (RegQueryValueExW(hkeyView, L"SortColumn", NULL, NULL, (BYTE*)&data, &sz) == ERROR_SUCCESS)
+            savedSort = data;
+        sz = sizeof(data);
+        if (RegQueryValueExW(hkeyView, L"ShowHidden", NULL, NULL, (BYTE*)&data, &sz) == ERROR_SUCCESS)
+            savedHidden = data;
+        sz = sizeof(data);
+        if (RegQueryValueExW(hkeyView, L"SplitView", NULL, NULL, (BYTE*)&data, &sz) == ERROR_SUCCESS)
+            savedSplit = data;
         RegCloseKey(hkeyView);
     }
+
+    // 应用显示隐藏文件设置
+    showHiddenFiles = (savedHidden != 0);
 
     for (int i = 0; i < NUM_PANES; i++) {
         panes[i].hwndList = createOneContentView();
@@ -1634,8 +1657,8 @@ void createContentView() {
         panes[i].currPath = NULL;
         panes[i].items = NULL;
         panes[i].numItems = 0;
-        panes[i].viewStyle = STYLE_DETAILS;
-        panes[i].sortColumnIdx = COLUMN_NAME_IDX;
+        // 注意：不再覆盖为 STYLE_DETAILS，使用保存的视图样式
+        panes[i].sortColumnIdx = (char)savedSort;
         panes[i].sortAscending = true;
         panes[i].searchData = NULL;
     }
@@ -1646,6 +1669,14 @@ void createContentView() {
     ShowWindow(panes[0].hwndPathLabel, SW_HIDE);
     ShowWindow(panes[1].hwndPathLabel, SW_HIDE);
     activeIdx = 0;
+
+    // 如果保存了双面板状态，启用分屏
+    if (savedSplit) {
+        splitOn = true;
+        ShowWindow(panes[1].hwndList, SW_SHOW);
+        ShowWindow(panes[0].hwndPathLabel, SW_SHOW);
+        ShowWindow(panes[1].hwndPathLabel, SW_SHOW);
+    }
 }
 
 // 为每个面板提供独立的路径链。在 initFileNodes() 之后调用
@@ -1712,6 +1743,14 @@ void cvToggleSplit() {
     resizeControls();
     cvInvalidatePaneFrames();
     SetFocus(panes[activeIdx].hwndList);
+
+    // 保存双面板状态到注册表
+    HKEY hkeySplit;
+    if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkeySplit) == ERROR_SUCCESS) {
+        DWORD val = splitOn ? 1 : 0;
+        RegSetValueExW(hkeySplit, L"SplitView", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+        RegCloseKey(hkeySplit);
+    }
 }
 
 // 双面板同步：当活动面板导航到子目录时，
