@@ -1442,21 +1442,28 @@ void setViewStyle(enum ViewStyle newViewStyle) {
     LONG_PTR wndstyle = GetWindowLongPtr(p->hwndList, GWL_STYLE);
     wndstyle &= ~LVS_TYPEMASK;
 
+    // 非报表视图移除虚拟列表模式（LVS_OWNERDATA与图标/列表视图不兼容，导致文件名截断和单列）
+    if (newViewStyle == STYLE_DETAILS) {
+        wndstyle |= LVS_OWNERDATA;
+    } else {
+        wndstyle &= ~LVS_OWNERDATA;
+    }
+
     switch (newViewStyle) {
         case STYLE_LARGE_ICON:
             wndstyle |= LVS_ICON | LVS_AUTOARRANGE;
             // 大图标视图：增大图标间距，确保文件名有足够空间显示（支持两行）
-            ListView_SetIconSpacing(p->hwndList, 140, 130);
+            ListView_SetIconSpacing(p->hwndList, 150, 140);
             break;
         case STYLE_SMALL_ICON:
             wndstyle |= LVS_SMALLICON | LVS_AUTOARRANGE;
             // 小图标视图：增大图标间距，确保长文件名不被截断
-            ListView_SetIconSpacing(p->hwndList, 200, 32);
+            ListView_SetIconSpacing(p->hwndList, 220, 36);
             break;
         case STYLE_LIST:
             wndstyle |= LVS_LIST | LVS_AUTOARRANGE;
             // 列表视图：自动多列排列，设置合适的图标间距
-            ListView_SetIconSpacing(p->hwndList, 200, 22);
+            ListView_SetIconSpacing(p->hwndList, 220, 24);
             break;
         case STYLE_DETAILS:
             wndstyle |= LVS_REPORT;
@@ -1724,6 +1731,28 @@ void cvInitPanePaths() {
     panes[1].currPath = copyPathChain(currPathFileNode);  // independent copy
     activeIdx = 0;
     currPathFileNode = panes[0].currPath;
+
+    // 应用保存的视图样式到两个面板（确保非报表视图移除虚拟列表模式）
+    for (int i = 0; i < NUM_PANES; i++) {
+        LONG_PTR wndstyle = GetWindowLongPtr(panes[i].hwndList, GWL_STYLE);
+        wndstyle &= ~LVS_TYPEMASK;
+        if (panes[i].viewStyle == STYLE_DETAILS) {
+            wndstyle |= LVS_OWNERDATA | LVS_REPORT;
+        } else {
+            wndstyle &= ~LVS_OWNERDATA;
+            if (panes[i].viewStyle == STYLE_LARGE_ICON) {
+                wndstyle |= LVS_ICON | LVS_AUTOARRANGE;
+                ListView_SetIconSpacing(panes[i].hwndList, 150, 140);
+            } else if (panes[i].viewStyle == STYLE_SMALL_ICON) {
+                wndstyle |= LVS_SMALLICON | LVS_AUTOARRANGE;
+                ListView_SetIconSpacing(panes[i].hwndList, 220, 36);
+            } else if (panes[i].viewStyle == STYLE_LIST) {
+                wndstyle |= LVS_LIST | LVS_AUTOARRANGE;
+                ListView_SetIconSpacing(panes[i].hwndList, 220, 24);
+            }
+        }
+        SetWindowLongPtr(panes[i].hwndList, GWL_STYLE, wndstyle);
+    }
 }
 
 static void cvSetActiveByHwnd(HWND h) {
@@ -3212,7 +3241,25 @@ static void refreshPane(struct Pane* p) {
     else ListView_SetImageList(p->hwndList, himlSmall, LVSIL_SMALL);
 
     if (p->sortColumnIdx != -1) sortItems(p);
-    ListView_SetItemCountEx(p->hwndList, p->numItems, 0);
+
+    // 根据视图样式选择填充方式：报表视图用虚拟列表，其他视图用普通模式手动填充
+    if (p->viewStyle == STYLE_DETAILS) {
+        // 虚拟列表模式：只设置项目数，数据通过 LVN_GETDISPINFO 按需提供
+        ListView_SetItemCountEx(p->hwndList, p->numItems, 0);
+    } else {
+        // 普通模式：清空后手动插入每个项目，确保图标视图文件名正常显示和换行
+        ListView_DeleteAllItems(p->hwndList);
+        for (int i = 0; i < p->numItems; i++) {
+            LVITEMW lvItem = {0};
+            lvItem.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
+            lvItem.iItem = i;
+            lvItem.iSubItem = 0;
+            lvItem.pszText = p->items[i].node->name;
+            lvItem.iImage = p->items[i].icon;
+            lvItem.lParam = (LPARAM)p->items[i].node;
+            ListView_InsertItem(p->hwndList, &lvItem);
+        }
+    }
 
     updateStatusbar(p);
     updatePaneLabel(p);
