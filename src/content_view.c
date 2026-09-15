@@ -147,19 +147,12 @@ void onMenuItemRunDX11Click(void);
 void onMenuItemRunD3D9Click(void);
 void onMenuItemRunNoDebugClick(void);
 void onMenuItemRunCustomClick(void);
-/** Launches the selected application in windowed mode. */
 void onMenuItemRunWindowedClick(void);
-/** Launches the selected application in fullscreen mode. */
 void onMenuItemRunFullscreenClick(void);
-/** Launches the selected application in a borderless window. */
 void onMenuItemRunBorderlessClick(void);
-/** Launches the selected application with the Vulkan renderer. */
 void onMenuItemRunVulkanClick(void);
-/** Launches the selected application in single-threaded mode. */
 void onMenuItemRunSingleThreadClick(void);
-/** Launches the selected application without splash or intro screens. */
 void onMenuItemRunNoSplashClick(void);
-/** Launches the selected application with conservative safe-mode options. */
 void onMenuItemRunSafeModeClick(void);
 void onMenuItemFolderSizeClick(void);
 void onMenuItemHashSHA1Click(void);
@@ -396,7 +389,6 @@ static void fillFileInfo(struct FileNode* node, struct ListItem* item) {
     memcpy(&item->modifiedTime, &node->modifiedTime, sizeof(FILETIME));
 }
 
-/** Updates the status bar with the active pane's item and storage details. */
 static void updateStatusbar(struct Pane* p) {
     if (p != activePane()) return;
 
@@ -916,7 +908,6 @@ static void createOpenWithMenu(int* id) {
     InsertMenuItem(hContextMenu, -1, TRUE, &item);
 }
 
-/** Builds and displays the context menu for the requested content type. */
 static void createContextMenu(enum ContextMenuType type) {
     freeMenuItems();
     memset(menuById, 0, sizeof(menuById));
@@ -1033,7 +1024,6 @@ static void createContextMenu(enum ContextMenuType type) {
     TrackPopupMenu(hMenu, 0, cursor.x, cursor.y, 0, activePane()->hwndList, NULL);
 }
 
-/** Handles list-view notifications dispatched by a content pane. */
 LRESULT contentViewNotify(NMHDR* nmhdr) {
     struct Pane* p = paneFromHwnd(nmhdr->hwndFrom);
 
@@ -1431,8 +1421,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
         }
         case LVN_ITEMCHANGED: {
             // 选中项变化时刷新状态栏（显示选中项大小）
-            if (nmhdr->hwndFrom == activePane()->hwndList)
-                updateStatusbar(activePane());
+            cvSetActiveByHwnd(nmhdr->hwndFrom);
             updateStatusbar(activePane());
             break;
         }
@@ -1728,7 +1717,6 @@ static HWND createOneContentView() {
 }
 
 // 初始化/刷新右键菜单项文本（语言切换时需重新调用）
-/** Refreshes all context-menu labels from the active localization. */
 static void initContextMenuTexts(void) {
     cmiOpen.text = lc_str.open;
     cmiEdit.text = lc_str.edit;
@@ -1788,7 +1776,6 @@ static void initContextMenuTexts(void) {
     cmiRunLocaleEN.text = lc_str.locale_en;
 }
 
-/** Creates the content panes and initializes their context-menu entries. */
 void createContentView() {
     initContextMenuTexts();
 
@@ -2544,7 +2531,6 @@ struct LauncherArg {
 static wchar_t g_savedRegLocale[16] = {0};
 static bool g_regLocaleModified = false;
 
-/** Maps a supported locale name to its Windows locale identifier. */
 static const wchar_t* localeToLCID(const wchar_t* locale) {
     if (wcsncmp(locale, L"ja_JP", 5) == 0) return L"00000411";
     if (wcsncmp(locale, L"zh_CN", 5) == 0) return L"00000804";
@@ -2553,7 +2539,6 @@ static const wchar_t* localeToLCID(const wchar_t* locale) {
     return NULL;
 }
 
-/** Temporarily applies the requested locale to the current user's registry. */
 static void applyRegistryLocale(const wchar_t* locale) {
     const wchar_t* lcid = localeToLCID(locale);
     if (!lcid) return;
@@ -2571,7 +2556,6 @@ static void applyRegistryLocale(const wchar_t* locale) {
     SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"intl", SMTO_ABORTIFHUNG, 1000, &res);
 }
 
-/** Restores the saved user locale after the launched process initializes. */
 static DWORD WINAPI restoreRegistryLocaleThread(LPVOID param) {
     Sleep(5000);  // 等5秒让目标程序完成初始化（大多数程序只在启动时读一次区域）
     if (g_regLocaleModified) {
@@ -2587,7 +2571,6 @@ static DWORD WINAPI restoreRegistryLocaleThread(LPVOID param) {
     return 0;
 }
 
-/** Launches the selected application on a worker thread and releases its arguments. */
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
     if (a->boostMode >= 0) {
@@ -2809,19 +2792,12 @@ void onMenuItemRunDX11Click(void) { launchWithArgs(L"-force-d3d11 -force-d3d11-s
 void onMenuItemRunD3D9Click(void) { launchWithArgs(L"-force-d3d9"); }
 void onMenuItemRunNoDebugClick(void) { launchWithArgs(L"-force-opengl"); }
 // 通用启动参数预设（不绑定特定引擎，覆盖Unity/Unreal/Source等常见引擎）
-/** Launches the selected application in windowed mode. */
 void onMenuItemRunWindowedClick(void) { launchWithArgs(L"-windowed -screen-fullscreen 0"); }
-/** Launches the selected application in fullscreen mode. */
 void onMenuItemRunFullscreenClick(void) { launchWithArgs(L"-fullscreen -screen-fullscreen 1"); }
-/** Launches the selected application in a borderless window. */
 void onMenuItemRunBorderlessClick(void) { launchWithArgs(L"-borderless -popupwindow"); }
-/** Launches the selected application with the Vulkan renderer. */
 void onMenuItemRunVulkanClick(void) { launchWithArgs(L"-force-vulkan"); }
-/** Launches the selected application in single-threaded mode. */
 void onMenuItemRunSingleThreadClick(void) { launchWithArgs(L"-singlethreaded -force-gfx-st"); }
-/** Launches the selected application without splash or intro screens. */
 void onMenuItemRunNoSplashClick(void) { launchWithArgs(L"-novid -nosplash -nointro"); }
-/** Launches the selected application with conservative safe-mode options. */
 void onMenuItemRunSafeModeClick(void) { launchWithArgs(L"-safe -novid -nosplash -autoconfig"); }
 
 // 辅助函数：以指定区域（locale）启动程序，设置LANG和LC_ALL环境变量
@@ -3491,7 +3467,6 @@ static void sortItems(struct Pane* p) {
     }
 }
 
-/** Rebuilds the visible list items and status information for a content pane. */
 static void refreshPane(struct Pane* p) {
     // 空指针保护：防止切换视图/磁盘时崩溃
     if (!p || !p->hwndList || !p->currPath) return;
@@ -3586,7 +3561,6 @@ void refreshContentView() {
 
 
 // 运行时语言切换后刷新列标题、右键菜单文本和状态栏
-/** Refreshes localized content-view labels and status information. */
 void cvRefreshLanguage(void) {
     // 重新初始化右键菜单项文本（之前只在启动时初始化一次，导致语言切换后右键不变）
     initContextMenuTexts();
