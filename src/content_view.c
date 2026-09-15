@@ -1702,7 +1702,7 @@ void createContentView() {
     cmiRunAdaptiveW.text = lc_str.adaptive_windowed;
     cmiRunAdaptiveF.text = lc_str.adaptive_fullscreen;
     cmiRunCustom.text = lc_str.arg_custom;
-    cmiHashSHA1.text = lc_str.hash_sha1;
+    cmiHashSHA1.text = L"计算SHA1";   // 原lc_str.hash_sha1含%ls占位符会显示字面量，改为固定文本
     cmiHashSHA256.text = lc_str.hash_sha256;
     cmiLauncherRunWith.text = lc_str.launcher_run_with;
     cmiLauncherChoose.text = lc_str.launcher_choose;
@@ -2458,16 +2458,6 @@ struct LauncherArg {
     wchar_t locale[32];      // locale for app-localized launch, e.g. "ja_JP.UTF-8" (empty = inherit)
 };
 
-/**
- * Launches the selected application on a worker thread.
- *
- * Optionally releases memory before launch and supplies LANG and LC_ALL to the
- * child process. The heap-allocated LauncherArg passed through param is freed
- * before the thread returns.
- *
- * @param param Pointer to the LauncherArg that configures the launch.
- * @return Always 0.
- */
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
     if (a->boostMode >= 0) {

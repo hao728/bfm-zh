@@ -507,6 +507,29 @@ HFONT getUIFont(void) {
     return uiFont;
 }
 
+// 提升系统菜单/标题字体，解决Bionic/Wine下菜单栏、右键菜单、标题栏字体过小模糊的问题。
+// 原因：主区域控件使用 getUIFont()（11pt）而菜单/标题栏使用系统默认字体（Bionic下偏小）。
+// 影响范围：仅修改 NONCLIENTMETRICS 的菜单与标题字体高度，字体名保持系统默认。
+// 回滚：删除本函数调用即可恢复系统默认菜单字体。
+static void boostSystemFonts(void) {
+    NONCLIENTMETRICSW ncm;
+    ZeroMemory(&ncm, sizeof(ncm));
+    ncm.cbSize = sizeof(ncm);
+    if (!SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0)) return;
+    HDC screen = GetDC(NULL);
+    int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
+    ReleaseDC(NULL, screen);
+    if (dpiY <= 0) dpiY = 96;
+    int h = -MulDiv(11, dpiY, 72);  // 与 getUIFont 一致的 11pt
+    if (h > -12) h = -12;
+    if (h < -20) h = -20;
+    ncm.lfMenuFont.lfHeight = h;
+    ncm.lfMenuFont.lfWeight = FW_NORMAL;
+    ncm.lfCaptionFont.lfHeight = h;
+    ncm.lfCaptionFont.lfWeight = FW_NORMAL;
+    SystemParametersInfoW(SPI_SETNONCLIENTMETRICS, sizeof(ncm), &ncm, SPIF_SENDCHANGE);
+}
+
 // ---------- Memory-boost progress tip ----------
 // 一个小型居中的置顶弹窗，让用户看到内存清理阶段
 
@@ -1523,6 +1546,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
                               0, 0, hwndWidth, hwndHeight, NULL, NULL, hInstance, NULL);
     if (!hwndMain) return 0;
     
+    // 提升系统菜单/标题字体，使菜单栏、右键菜单与主区域同样清晰（Bionic下默认为小字体）
+    boostSystemFonts();
     createMainMenu();
     createToolbar();
     createNavbar();
