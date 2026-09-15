@@ -16,7 +16,7 @@ HINSTANCE globalHInstance = NULL;
 HWND hwndMain = NULL;
 HWND hwndTabs = NULL;
 HWND hwndPreview = NULL;
-bool previewOn = false;
+bool previewOn = true;  // 默认开启预览窗格，提升实用性
 struct LC_STR lc_str = {0};
 void resizeControls(void);  // forward: tab visibility changes trigger relayout
 void previewUpdate(void);   // forward: refresh preview pane for current selection
@@ -30,7 +30,6 @@ static struct TabState tabStates[MAX_TABS];
 static int tabCount = 0;
 static int activeTab = 0;
 
-/** Saves the current directory in the active tab state. */
 static void tabsSaveCurrent(void) {
     if (activeTab < 0 || activeTab >= tabCount) return;
     if (currPathFileNode) {
@@ -38,7 +37,6 @@ static void tabsSaveCurrent(void) {
     }
 }
 
-/** Activates a tab and restores its saved directory. */
 static void tabsRestore(int idx) {
     if (idx < 0 || idx >= tabCount) return;
     activeTab = idx;
@@ -51,13 +49,11 @@ static void tabsRestore(int idx) {
 
 // 创建第二个标签页后再次显示它。
 
-/** Shows the tab bar only when multiple tabs are open. */
 static void tabsUpdateVisibility(void) {
     if (!hwndTabs) return;
     ShowWindow(hwndTabs, tabCount > 1 ? SW_SHOW : SW_HIDE);
 }
 
-/** Adds a tab for the supplied path and makes it active. */
 static void tabsAdd(const wchar_t* path) {
     if (tabCount >= MAX_TABS) return;
     if (path) wcscpy_s(tabStates[tabCount].path, MAX_PATH, path);
@@ -80,7 +76,6 @@ static void tabsAdd(const wchar_t* path) {
     tabsUpdateVisibility();
 }
 
-/** Closes a tab while preserving at least one open tab. */
 static void tabsClose(int idx) {
     if (idx < 0 || idx >= tabCount || tabCount <= 1) return;
     tabsSaveCurrent();
@@ -99,7 +94,6 @@ static void tabsClose(int idx) {
 
 // 刷新其标签，使标签栏反映用户所在位置。
 
-/** Updates the active tab's saved path and displayed label. */
 static void tabsSyncCurrent(const wchar_t* path) {
     if (!hwndTabs || activeTab < 0 || activeTab >= tabCount) return;
     if (path) wcscpy_s(tabStates[activeTab].path, MAX_PATH, path);
@@ -125,7 +119,6 @@ static void tabsSyncCurrent(const wchar_t* path) {
 
 // 公共标签 API，供键盘快捷键（Ctrl+T / Ctrl+W）和菜单使用。
 
-/** Opens a new tab at the directory currently being viewed. */
 void tabNew(void) {
     if (!hwndTabs || tabCount >= MAX_TABS) return;
     tabsSaveCurrent();
@@ -136,7 +129,6 @@ void tabNew(void) {
     resizeControls();
 }
 
-/** Closes the active tab when another tab can remain open. */
 void tabCloseActive(void) {
     if (!hwndTabs || tabCount <= 1) return;
     int sel = TabCtrl_GetCurSel(hwndTabs);
@@ -153,7 +145,6 @@ static HBRUSH paneLabelActiveBrush = NULL;
 static HBRUSH paneLabelInactiveBrush = NULL;
 static bool paneLabelInactiveDark = false;
 
-/** Invalidates the stored pane frames so Windows repaints them. */
 void cvInvalidatePaneFrames(void) {
     for (int i = 0; i < 2; i++) InvalidateRect(hwndMain, &paneCell[i], TRUE);
 }
@@ -182,14 +173,12 @@ void cvInvalidatePaneFrames(void) {
 
 enum { SB_ARROW_UP, SB_ARROW_DOWN, SB_ARROW_LEFT, SB_ARROW_RIGHT };
 
-/** Fills a rectangle with a solid color. */
 static void fillRect(HDC hdc, const RECT* rc, COLORREF color) {
     HBRUSH brush = CreateSolidBrush(color);
     FillRect(hdc, (RECT*)rc, brush);
     DeleteObject(brush);
 }
 
-/** Draws a directional arrow inside a scrollbar button. */
 static void drawScrollArrow(HDC hdc, const RECT* rc, int dir, COLORREF color) {
     int cx = (rc->left + rc->right) / 2;
     int cy = (rc->top + rc->bottom) / 2;
@@ -220,7 +209,6 @@ static void drawScrollArrow(HDC hdc, const RECT* rc, int dir, COLORREF color) {
 
 // 填充水平滚动条和垂直滚动条交汇处的角块。
 
-/** Paints one non-client scrollbar and returns its window-relative bounds. */
 static void paintOneScrollbar(HWND hwnd, HDC hdc, POINT org, LONG objid, bool vertical, RECT* out) {
     SCROLLBARINFO sbi = {0};
     sbi.cbSize = sizeof(SCROLLBARINFO);
@@ -281,7 +269,6 @@ static void paintOneScrollbar(HWND hwnd, HDC hdc, POINT org, LONG objid, bool ve
     *out = rc;
 }
 
-/** Repaints a window's non-client scrollbars for the dark theme. */
 void themePaintScrollbars(HWND hwnd) {
     if (!isDarkMode()) return;
 
@@ -328,7 +315,6 @@ void themePaintScrollbars(HWND hwnd) {
 
 // 在原始窗口过程之前调用。如果消息已完全处理则返回 true。
 
-/** Handles scrollbar messages that must be intercepted before dispatch. */
 bool themeScrollbarsHookBefore(HWND hwnd, UINT msg, WPARAM wParam) {
     if (msg == WM_TIMER && wParam == THEME_SB_TIMER_ID) {
         themePaintScrollbars(hwnd);
@@ -342,7 +328,6 @@ bool themeScrollbarsHookBefore(HWND hwnd, UINT msg, WPARAM wParam) {
 
 // 在原始窗口过程之后调用（模态跟踪循环在那里返回）。
 
-/** Handles scrollbar repaint work after a message is dispatched. */
 void themeScrollbarsHookAfter(HWND hwnd, UINT msg) {
     if (msg == WM_NCLBUTTONDOWN || msg == WM_NCLBUTTONDBLCLK ||
         msg == WM_NCLBUTTONUP || msg == WM_CAPTURECHANGED) {
@@ -359,7 +344,6 @@ void themeScrollbarsHookAfter(HWND hwnd, UINT msg) {
 
 // 滚动条。保留白名单机制，避免高频查询消息触发重绘。
 
-/** Reports whether a message requires repainting themed scrollbars. */
 bool themeScrollbarsNeedRepaint(UINT msg) {
     switch (msg) {
         case WM_NCPAINT:
@@ -407,7 +391,6 @@ bool themeScrollbarsNeedRepaint(UINT msg) {
 
 //       这是中文是否会渲染而非方块的真正测试。
 
-/** Tests whether an installed font face is usable and optionally supports CJK. */
 static bool fontFaceUsable(const wchar_t* face, bool requireCJK) {
     HFONT hf = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -438,7 +421,6 @@ static bool fontFaceUsable(const wchar_t* face, bool requireCJK) {
 // （Droid Sans Fallback、思源黑体等），无需我们猜测其名称。
 
 static wchar_t g_enumCJKFace[LF_FACESIZE] = {0};
-/** Records the first enumerated TrueType font capable of rendering CJK text. */
 static INT CALLBACK enumCJKFontProc(const LOGFONTW* lf, const TEXTMETRICW* tm,
                                     DWORD fontType, LPARAM lParam) {
     (void)tm; (void)lParam;
@@ -460,20 +442,67 @@ static INT CALLBACK enumCJKFontProc(const LOGFONTW* lf, const TEXTMETRICW* tm,
 // 高密度手机面板。
 
 static HFONT uiFont = NULL;
-/** Returns the shared DPI-aware UI font with CJK support. */
+static int g_fontSizePt = 11;  // 用户可配置的UI字体大小（pt），默认11
+
+// 从注册表加载字体大小设置
+static void loadFontSize(void) {
+    HKEY hkey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0, KEY_READ, &hkey) == ERROR_SUCCESS) {
+        DWORD val = 0, sz = sizeof(val);
+        if (RegQueryValueExW(hkey, L"FontSize", NULL, NULL, (BYTE*)&val, &sz) == ERROR_SUCCESS) {
+            if (val >= 8 && val <= 20) g_fontSizePt = (int)val;
+        }
+        RegCloseKey(hkey);
+    }
+}
+
+// 保存字体大小到注册表
+static void saveFontSize(int pt) {
+    HKEY hkey;
+    if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkey) == ERROR_SUCCESS) {
+        DWORD val = (DWORD)pt;
+        RegSetValueExW(hkey, L"FontSize", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+        RegCloseKey(hkey);
+    }
+}
+
+// 应用新字体大小：销毁旧字体，重新创建，更新所有控件
+static void boostSystemFonts(void);  // 前向声明（定义在下方）
+
+static void applyFontSize(int pt) {
+    g_fontSizePt = pt;
+    saveFontSize(pt);
+    // 销毁旧字体，getUIFont会重新创建
+    if (uiFont) { DeleteObject(uiFont); uiFont = NULL; }
+    HFONT newFont = getUIFont();
+    // 更新main.c可直接访问的控件
+    HWND ctrls[] = { hwndMain, hwndTabs, hwndPreview, hwndStatusbar, hwndTreeview,
+                     hwndToolbar, hwndNavbar };
+    for (int i = 0; i < (int)(sizeof(ctrls)/sizeof(ctrls[0])); i++) {
+        if (ctrls[i]) SendMessage(ctrls[i], WM_SETFONT, (WPARAM)newFont, TRUE);
+    }
+    // 面板列表/路径标签（通过content_view.c的函数访问static变量）
+    cvApplyFont(newFont);
+    // 地址栏/搜索框（通过navbar.c的函数访问static变量）
+    navbarApplyFont(newFont);
+    // 同步提升系统菜单/标题字体
+    boostSystemFonts();
+    // 强制重绘
+    InvalidateRect(hwndMain, NULL, TRUE);
+    DrawMenuBar(hwndMain);
+}
+
 HFONT getUIFont(void) {
     if (!uiFont) {
         HDC screen = GetDC(NULL);
         int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
         ReleaseDC(NULL, screen);
         if (dpiY <= 0) dpiY = 96;
-        // 在 Wine 的 freetype 下，11pt 比 10pt 更清晰，中文渲染更饱满；
+        // 使用用户配置的字体大小（默认11pt），钳制防止异常
 
-        // 进行钳制，避免配置错误的高 DPI 导致字体过大。
-
-        int height = -MulDiv(11, dpiY, 72);  // 11pt -> device pixels
-        if (height > -12) height = -12;
-        if (height < -20) height = -20;
+        int height = -MulDiv(g_fontSizePt, dpiY, 72);
+        if (height > -10) height = -10;
+        if (height < -28) height = -28;
 
         wchar_t chosen[LF_FACESIZE] = {0};
 
@@ -530,7 +559,6 @@ HFONT getUIFont(void) {
 // 原因：主区域控件使用 getUIFont()（11pt）而菜单/标题栏使用系统默认字体（Bionic下偏小）。
 // 影响范围：仅修改 NONCLIENTMETRICS 的菜单与标题字体高度，字体名保持系统默认。
 // 回滚：删除本函数调用即可恢复系统默认菜单字体。
-/** Enlarges the system menu and caption fonts to match the application UI. */
 static void boostSystemFonts(void) {
     NONCLIENTMETRICSW ncm;
     ZeroMemory(&ncm, sizeof(ncm));
@@ -540,9 +568,9 @@ static void boostSystemFonts(void) {
     int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
     ReleaseDC(NULL, screen);
     if (dpiY <= 0) dpiY = 96;
-    int h = -MulDiv(11, dpiY, 72);  // 与 getUIFont 一致的 11pt
-    if (h > -12) h = -12;
-    if (h < -20) h = -20;
+    int h = -MulDiv(g_fontSizePt, dpiY, 72);  // 与 getUIFont 一致的用户配置字体大小
+    if (h > -10) h = -10;
+    if (h < -28) h = -28;
     ncm.lfMenuFont.lfHeight = h;
     ncm.lfMenuFont.lfWeight = FW_NORMAL;
     ncm.lfCaptionFont.lfHeight = h;
@@ -561,7 +589,6 @@ static HWND hBoostTip = NULL;
 static void hideBoostTip(void);
 
 // Boost tip 子类化窗口过程：支持点击关闭
-/** Handles click-to-dismiss and timeout behavior for the memory-boost tip. */
 static LRESULT CALLBACK boostTipSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     if (msg == WM_LBUTTONDOWN) {
         hideBoostTip();
@@ -574,7 +601,6 @@ static LRESULT CALLBACK boostTipSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-/** Displays the temporary memory-boost status tip. */
 static void showBoostTip(const wchar_t* text) {
     hideBoostTip();
     RECT rc;
@@ -596,7 +622,6 @@ static void showBoostTip(const wchar_t* text) {
     }
 }
 
-/** Destroys the memory-boost status tip if it is visible. */
 static void hideBoostTip(void) {
     if (hBoostTip) {
         DestroyWindow(hBoostTip);
@@ -604,13 +629,11 @@ static void hideBoostTip(void) {
     }
 }
 
-/** Converts a window's screen rectangle to its parent's client coordinates. */
 void GetWindowRectInParent(HWND hwnd, RECT* rect) {
     GetWindowRect(hwnd, rect);
     MapWindowPoints(HWND_DESKTOP, GetParent(hwnd), (LPPOINT)rect, 2);
 }
 
-/** Processes messages for the About dialog. */
 INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_NOTIFY: {
@@ -662,7 +685,6 @@ extern void onMenuItemUnloadISOImageClick(void);
 
 static void createMainMenu();
 
-/** Dispatches commands selected from the main menu. */
 void mainMenuCommand(WPARAM wParam) {
     switch (LOWORD(wParam)) {
         case ID_EDIT_CUT:
@@ -737,6 +759,10 @@ void mainMenuCommand(WPARAM wParam) {
             cvToggleMemoryDisplay();
             if (hViewMenu) CheckMenuItem(hViewMenu, ID_VIEW_MEMORY, MF_BYCOMMAND | (cvMemoryVisible() ? MF_CHECKED : MF_UNCHECKED));
             break;
+        case ID_VIEW_FONT_SMALL:  applyFontSize(9);  createMainMenu(); break;
+        case ID_VIEW_FONT_MEDIUM: applyFontSize(11); createMainMenu(); break;
+        case ID_VIEW_FONT_LARGE:  applyFontSize(13); createMainMenu(); break;
+        case ID_VIEW_FONT_XLARGE: applyFontSize(15); createMainMenu(); break;
         case ID_NAV_BACK: navGoBack(); break;
         case ID_NAV_FORWARD: navGoForward(); break;
         case ID_NAV_RECENT: recentMenu(); break;
@@ -764,7 +790,6 @@ static wchar_t previewSizeStr[32] = {0};
 static wchar_t previewDateStr[64] = {0};
 static wchar_t previewText[2048] = {0};  // first lines of text files
 
-/** Reports whether a path has a supported image extension. */
 static bool isImageExt(const wchar_t* path) {
     const wchar_t* dot = wcsrchr(path, L'.');
     if (!dot) return false;
@@ -775,7 +800,6 @@ static bool isImageExt(const wchar_t* path) {
            !_wcsicmp(ext, L"tif") || !_wcsicmp(ext, L"tiff");
 }
 
-/** Reports whether a path has a supported text extension. */
 static bool isTextExt(const wchar_t* path) {
     const wchar_t* dot = wcsrchr(path, L'.');
     if (!dot) return false;
@@ -792,7 +816,6 @@ static bool isTextExt(const wchar_t* path) {
            !_wcsicmp(ext, L"html") || !_wcsicmp(ext, L"css");
 }
 
-/** Loads a bounded text preview from a file, detecting UTF-8 when possible. */
 static void loadPreviewText(const wchar_t* path) {
     previewText[0] = L'\0';
     HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
@@ -831,7 +854,6 @@ static void loadPreviewText(const wchar_t* path) {
     }
 }
 
-/** Refreshes preview content and metadata for the current selection. */
 void previewUpdate(void) {
     if (!previewOn || !hwndPreview) return;
     // 释放先前的资源。
@@ -894,7 +916,6 @@ void previewUpdate(void) {
 
 // 点击预览面板缩略图打开的全尺寸图像查看器。
 
-/** Processes messages for the full-size image preview window. */
 static LRESULT CALLBACK ZoomWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_PAINT: {
@@ -946,7 +967,6 @@ static LRESULT CALLBACK ZoomWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
-/** Opens a window that displays the current preview image at full size. */
 static void openZoomWindow(void) {
     if (!previewPic) return;
     if (hwndZoom) { SetForegroundWindow(hwndZoom); return; }
@@ -980,7 +1000,6 @@ static void openZoomWindow(void) {
     SetFocus(hwndZoom);
 }
 
-/** Processes painting and interaction for the preview pane. */
 static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_LBUTTONDOWN:
@@ -1124,7 +1143,6 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
-/** Resizes and positions the main window's child controls. */
 void resizeControls() {
     RECT rect;
     GetClientRect(hwndMain, &rect);
@@ -1207,7 +1225,6 @@ void resizeControls() {
     }
 }
 
-/** Processes messages for the application's main window. */
 LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_USER_EXTRACT_DONE:
@@ -1381,7 +1398,6 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
-/** Navigates to a file-system node and records it in navigation history. */
 void navigateToFileNode(struct FileNode* node) {
     if (node) {
         wchar_t p[MAX_PATH]={0}; getFileNodePath(node,p);
@@ -1395,7 +1411,6 @@ void navigateToFileNode(struct FileNode* node) {
     }
 }
 
-/** Navigates to a path and records it in navigation history. */
 void navigateToPath(wchar_t* path) {
     if (path) {
         navPushHistory(path); recentAdd(path);
@@ -1407,7 +1422,6 @@ void navigateToPath(wchar_t* path) {
     }
 }
 
-/** Navigates from the current node to its parent directory. */
 void navigateUp() {
     if (currPathFileNode->parent) {
         clearAddrButtons();
@@ -1420,7 +1434,6 @@ void navigateUp() {
     }
 }
 
-/** Rebuilds and redraws the contents of the current directory. */
 void navigateRefresh() {
     if (currPathFileNode) {
         buildChildNodes(currPathFileNode, false);
@@ -1430,7 +1443,6 @@ void navigateRefresh() {
     }
 }
 
-/** Opens a file or navigates into a directory node. */
 void openFileNode(struct FileNode* node) {
     if (node->type == TYPE_FILE) {
         wchar_t path[MAX_PATH] = {0};
@@ -1442,7 +1454,6 @@ void openFileNode(struct FileNode* node) {
     else navigateToFileNode(node);
 }
 
-/** Builds and installs the application's main menu. */
 static void createMainMenu() {
     HMENU hmOld = GetMenu(hwndMain);
 
@@ -1466,7 +1477,17 @@ static void createMainMenu() {
     AppendMenu(hmView, MF_STRING, ID_VIEW_SPLIT, lc_str.split_view);
     AppendMenu(hmView, MF_STRING, ID_VIEW_PREVIEW, lc_str.preview_pane);
     AppendMenu(hmView, MF_STRING, ID_VIEW_HIDDEN, lc_str.show_hidden);
-    AppendMenu(hmView, MF_STRING, ID_VIEW_MEMORY, L"显示内存");
+    AppendMenu(hmView, MF_STRING, ID_VIEW_MEMORY, L"显示存储信息");
+    // 字体大小子菜单：用户可自由调整，比自适应DPI更直接有效
+    {
+        HMENU hmFont = CreatePopupMenu();
+        UINT checked = MF_BYCOMMAND | MF_CHECKED;
+        AppendMenu(hmFont, (g_fontSizePt == 9 ? checked : MF_STRING), ID_VIEW_FONT_SMALL, L"小 (9pt)");
+        AppendMenu(hmFont, (g_fontSizePt == 11 ? checked : MF_STRING), ID_VIEW_FONT_MEDIUM, L"标准 (11pt)");
+        AppendMenu(hmFont, (g_fontSizePt == 13 ? checked : MF_STRING), ID_VIEW_FONT_LARGE, L"大 (13pt)");
+        AppendMenu(hmFont, (g_fontSizePt == 15 ? checked : MF_STRING), ID_VIEW_FONT_XLARGE, L"特大 (15pt)");
+        AppendMenu(hmView, MF_POPUP | MF_STRING, (UINT_PTR)hmFont, lc_str.font_size);
+    }
     AppendMenu(hmView, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmView, MF_STRING, ID_VIEW_GAME_MODE, lc_str.game_mode);
     AppendMenu(hmView, MF_STRING, ID_VIEW_COMPARE, lc_str.compare_panes);
@@ -1513,7 +1534,6 @@ static void createMainMenu() {
     if (hmOld) DestroyMenu(hmOld);
 }
 
-/** Initializes the application, creates its main window, and runs the message loop. */
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int nCmdShow) {
     int numArgs;
     wchar_t** args = CommandLineToArgvW(GetCommandLineW(), &numArgs);
@@ -1525,6 +1545,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     loadLCStrings(L"zh-CN");
 
     globalHInstance = hInstance;
+
+    // 加载用户配置的字体大小（必须在第一次调用getUIFont之前）
+    loadFontSize();
 
     // 为 OLE 拖放初始化 COM
 

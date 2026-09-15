@@ -147,6 +147,13 @@ void onMenuItemRunDX11Click(void);
 void onMenuItemRunD3D9Click(void);
 void onMenuItemRunNoDebugClick(void);
 void onMenuItemRunCustomClick(void);
+void onMenuItemRunWindowedClick(void);
+void onMenuItemRunFullscreenClick(void);
+void onMenuItemRunBorderlessClick(void);
+void onMenuItemRunVulkanClick(void);
+void onMenuItemRunSingleThreadClick(void);
+void onMenuItemRunNoSplashClick(void);
+void onMenuItemRunSafeModeClick(void);
 void onMenuItemFolderSizeClick(void);
 void onMenuItemHashSHA1Click(void);
 void onMenuItemHashSHA256Click(void);
@@ -164,6 +171,14 @@ static struct ContextMenuItem cmiRunNoDebug = {NULL, &onMenuItemRunNoDebugClick,
 static struct ContextMenuItem cmiRunAdaptiveW = {NULL, &onMenuItemRunAdaptiveWClick, NULL};
 static struct ContextMenuItem cmiRunAdaptiveF = {NULL, &onMenuItemRunAdaptiveFClick, NULL};
 static struct ContextMenuItem cmiRunCustom = {NULL, &onMenuItemRunCustomClick, NULL};
+// 通用启动参数预设（不绑定特定引擎，多引擎通用）
+static struct ContextMenuItem cmiRunWindowed = {NULL, &onMenuItemRunWindowedClick, NULL};
+static struct ContextMenuItem cmiRunFullscreen = {NULL, &onMenuItemRunFullscreenClick, NULL};
+static struct ContextMenuItem cmiRunBorderless = {NULL, &onMenuItemRunBorderlessClick, NULL};
+static struct ContextMenuItem cmiRunVulkan = {NULL, &onMenuItemRunVulkanClick, NULL};
+static struct ContextMenuItem cmiRunSingleThread = {NULL, &onMenuItemRunSingleThreadClick, NULL};
+static struct ContextMenuItem cmiRunNoSplash = {NULL, &onMenuItemRunNoSplashClick, NULL};
+static struct ContextMenuItem cmiRunSafeMode = {NULL, &onMenuItemRunSafeModeClick, NULL};
 static struct ContextMenuItem cmiHashSHA1 = {NULL, &onMenuItemHashSHA1Click, NULL};
 static struct ContextMenuItem cmiHashSHA256 = {NULL, &onMenuItemHashSHA256Click, NULL};
 static struct ContextMenuItem cmiLauncherRunWith = {NULL, &onMenuItemLauncherRunWithClick, NULL};
@@ -250,6 +265,14 @@ int cvActiveIdx() {
 
 bool cvSplitOn() {
     return splitOn;
+}
+
+// 应用字体到所有面板的列表和路径标签（供main.c切换字体大小时调用）
+void cvApplyFont(HFONT font) {
+    for (int i = 0; i < NUM_PANES; i++) {
+        if (panes[i].hwndList) SendMessage(panes[i].hwndList, WM_SETFONT, (WPARAM)font, TRUE);
+        if (panes[i].hwndPathLabel) SendMessage(panes[i].hwndPathLabel, WM_SETFONT, (WPARAM)font, TRUE);
+    }
 }
 
 // 切换状态栏内存显示，并保存到注册表
@@ -376,8 +399,23 @@ static void fillFileInfo(struct FileNode* node, struct ListItem* item) {
 
 static void updateStatusbar(struct Pane* p) {
     if (p != activePane()) return;
+
+    // 状态栏第二个值：有选中项时显示"选中项大小"，无选中时显示当前目录文件总大小
+    // （与Windows资源管理器行为一致；目录总大小不含子文件夹递归内容）
+    uint64_t displaySize = p->totalSize;
+    int selCount = 0;
+    if (p->hwndList) {
+        selCount = ListView_GetSelectedCount(p->hwndList);
+        if (selCount > 0) {
+            displaySize = 0;
+            int idx = -1;
+            while ((idx = ListView_GetNextItem(p->hwndList, idx, LVNI_SELECTED)) != -1) {
+                if (idx >= 0 && idx < p->numItems) displaySize += p->items[idx].size;
+            }
+        }
+    }
     wchar_t sizeStr[32] = {0};
-    formatFileSize(p->totalSize, sizeStr);
+    formatFileSize(displaySize, sizeStr);
 
     // 内存使用（可通过视图菜单开关控制）
 
@@ -409,10 +447,13 @@ static void updateStatusbar(struct Pane* p) {
         }
     }
 
-    // 四段式状态栏：项目数 | 大小 | 内存 | 可用空间
-
+    // 四段式状态栏：项目数 | 大小（选中时显示选中项大小） | 内存 | 可用空间
     wchar_t part0[80], part1[80];
-    swprintf_s(part0, 80, L"%d %ls", p->numItems, lc_str.items);
+    if (selCount > 0) {
+        swprintf_s(part0, 80, L"%d %ls  |  选中 %d", p->numItems, lc_str.items, selCount);
+    } else {
+        swprintf_s(part0, 80, L"%d %ls", p->numItems, lc_str.items);
+    }
     swprintf_s(part1, 80, L"%ls", sizeStr);
     setStatusbarParts(part0, part1, memStr[0] ? memStr : L"", freeStr[0] ? freeStr : L"");
 }
@@ -909,12 +950,27 @@ static void createContextMenu(enum ContextMenuType type) {
                     // 支持；自定义输入涵盖其他所有内容。
 
                     HMENU hArgs = CreatePopupMenu();
+                    // 自定义参数（最常用，放最前）
                     addContextMenuItem(hArgs, id++, &cmiRunCustom, true);
-                    addContextMenuItem(hArgs, id++, &cmiRunAdaptiveW, false);
-                    addContextMenuItem(hArgs, id++, &cmiRunAdaptiveF, false);
+                    // 显示模式
+                    addContextMenuItem(hArgs, id++, &cmiRunWindowed, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunFullscreen, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunBorderless, false);
+                    AppendMenuW(hArgs, MF_SEPARATOR, 0, NULL);
+                    // 图形API（跨引擎通用）
                     addContextMenuItem(hArgs, id++, &cmiRunDX11, false);
                     addContextMenuItem(hArgs, id++, &cmiRunD3D9, false);
-                    addContextMenuItem(hArgs, id++, &cmiRunNoDebug, true);
+                    addContextMenuItem(hArgs, id++, &cmiRunVulkan, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunNoDebug, false);
+                    AppendMenuW(hArgs, MF_SEPARATOR, 0, NULL);
+                    // 性能与启动优化
+                    addContextMenuItem(hArgs, id++, &cmiRunSingleThread, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunNoSplash, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunSafeMode, false);
+                    AppendMenuW(hArgs, MF_SEPARATOR, 0, NULL);
+                    // 自适应窗口/全屏（Wine虚拟桌面）
+                    addContextMenuItem(hArgs, id++, &cmiRunAdaptiveW, false);
+                    addContextMenuItem(hArgs, id++, &cmiRunAdaptiveF, true);
                     AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hArgs, lc_str.run_with_args);
                 }
                 // "以指定区域运行"子菜单：设置LANG/LC_ALL环境变量，适用于galgame等需要特定编码的程序
@@ -924,7 +980,7 @@ static void createContextMenu(enum ContextMenuType type) {
                     addContextMenuItem(hLocale, id++, &cmiRunLocaleZHCN, false);
                     addContextMenuItem(hLocale, id++, &cmiRunLocaleZHTW, false);
                     addContextMenuItem(hLocale, id++, &cmiRunLocaleEN, true);
-                    AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hLocale, L"以指定区域运行");
+                    AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hLocale, lc_str.locale_run);
                 }
                 createOpenWithMenu(&id);
                 addContextMenuItem(hMenu, id++, &cmiEdit, true);
@@ -1088,7 +1144,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 DrawTextW(hdc, item->type, -1, &typeR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
                 int sizeX = rc.left + w0 + w1;
-                if (item->node->type == TYPE_DRIVE) {
+                if (item->node->type == TYPE_DRIVE && showMemoryInStatusbar) {
                     wchar_t dp[MAX_PATH] = {0};
                     getFileNodePath(item->node, dp);
                     if (wcslen(dp) == 2 && dp[1] == L':') wcscat_s(dp, MAX_PATH, L"\\");
@@ -1369,6 +1425,12 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
 
             struct ListItem* item = &p->items[nmia->iItem];
             openFileNode(item->node);
+            break;
+        }
+        case LVN_ITEMCHANGED: {
+            // 选中项变化时刷新状态栏（显示选中项大小）
+            cvSetActiveByHwnd(nmhdr->hwndFrom);
+            updateStatusbar(activePane());
             break;
         }
         case LVN_COLUMNCLICK: {
@@ -1662,7 +1724,8 @@ static HWND createOneContentView() {
     return hwnd;
 }
 
-void createContentView() {
+// 初始化/刷新右键菜单项文本（语言切换时需重新调用）
+static void initContextMenuTexts(void) {
     cmiOpen.text = lc_str.open;
     cmiEdit.text = lc_str.edit;
     cmiCut.text = lc_str.cut;
@@ -1677,7 +1740,7 @@ void createContentView() {
     cmiUnloadISOImage.text = lc_str.unload_iso_image;
     cmiOpenAsAdmin.text = lc_str.open_as_admin;
     cmiChooseProgram.text = lc_str.choose_program;
-    cmiManageAssoc.text = L"管理文件关联...";
+    cmiManageAssoc.text = lc_str.manage_assoc;
     cmiProperties.text = lc_str.properties;
     cmiCopyPath.text = lc_str.copy_path;
     cmiOpenCmd.text = lc_str.open_cmd;
@@ -1702,15 +1765,27 @@ void createContentView() {
     cmiRunAdaptiveW.text = lc_str.adaptive_windowed;
     cmiRunAdaptiveF.text = lc_str.adaptive_fullscreen;
     cmiRunCustom.text = lc_str.arg_custom;
-    cmiHashSHA1.text = L"计算SHA1";   // 原lc_str.hash_sha1含%ls占位符会显示字面量，改为固定文本
+    // 通用启动参数预设文本
+    cmiRunWindowed.text = L"窗口化";
+    cmiRunFullscreen.text = L"全屏";
+    cmiRunBorderless.text = L"无边框窗口";
+    cmiRunVulkan.text = L"强制 Vulkan";
+    cmiRunSingleThread.text = L"单线程运行";
+    cmiRunNoSplash.text = L"跳过开场动画";
+    cmiRunSafeMode.text = L"安全模式启动";
+    cmiHashSHA1.text = lc_str.calc_sha1;
     cmiHashSHA256.text = lc_str.hash_sha256;
     cmiLauncherRunWith.text = lc_str.launcher_run_with;
     cmiLauncherChoose.text = lc_str.launcher_choose;
     cmiDiff.text = lc_str.diff_files;
-    cmiRunLocaleJA.text = L"日文（日本）";
-    cmiRunLocaleZHCN.text = L"简体中文";
-    cmiRunLocaleZHTW.text = L"繁体中文";
-    cmiRunLocaleEN.text = L"英文（美国）";
+    cmiRunLocaleJA.text = lc_str.locale_ja;
+    cmiRunLocaleZHCN.text = lc_str.locale_zhcn;
+    cmiRunLocaleZHTW.text = lc_str.locale_zhtw;
+    cmiRunLocaleEN.text = lc_str.locale_en;
+}
+
+void createContentView() {
+    initContextMenuTexts();
 
     // 从注册表恢复已保存的视图样式、排序方式、隐藏文件、双面板状态
 
@@ -2458,6 +2533,52 @@ struct LauncherArg {
     wchar_t locale[32];      // locale for app-localized launch, e.g. "ja_JP.UTF-8" (empty = inherit)
 };
 
+// 转区功能：临时修改注册表 HKCU\Control Panel\International\Locale
+// 原理参考 Locale Emulator，但不做DLL注入（Wine下注入不稳定且需权限），
+// 而是在启动前修改注册表locale，启动后延迟恢复，使读GetACP的纯Win32程序也能转区。
+static wchar_t g_savedRegLocale[16] = {0};
+static bool g_regLocaleModified = false;
+
+static const wchar_t* localeToLCID(const wchar_t* locale) {
+    if (wcsncmp(locale, L"ja_JP", 5) == 0) return L"00000411";
+    if (wcsncmp(locale, L"zh_CN", 5) == 0) return L"00000804";
+    if (wcsncmp(locale, L"zh_TW", 5) == 0) return L"00000404";
+    if (wcsncmp(locale, L"en_US", 5) == 0) return L"00000409";
+    return NULL;
+}
+
+static void applyRegistryLocale(const wchar_t* locale) {
+    const wchar_t* lcid = localeToLCID(locale);
+    if (!lcid) return;
+    HKEY hkey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\International", 0, KEY_READ | KEY_SET_VALUE, &hkey) != ERROR_SUCCESS) return;
+    DWORD sz = sizeof(g_savedRegLocale);
+    if (RegQueryValueExW(hkey, L"Locale", NULL, NULL, (BYTE*)g_savedRegLocale, &sz) != ERROR_SUCCESS) {
+        g_savedRegLocale[0] = L'\0';
+    }
+    RegSetValueExW(hkey, L"Locale", 0, REG_SZ, (BYTE*)lcid, (wcslen(lcid) + 1) * sizeof(wchar_t));
+    RegCloseKey(hkey);
+    g_regLocaleModified = true;
+    // 广播设置变更，让Wine立即生效
+    DWORD_PTR res;
+    SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"intl", SMTO_ABORTIFHUNG, 1000, &res);
+}
+
+static DWORD WINAPI restoreRegistryLocaleThread(LPVOID param) {
+    Sleep(5000);  // 等5秒让目标程序完成初始化（大多数程序只在启动时读一次区域）
+    if (g_regLocaleModified) {
+        HKEY hkey;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\International", 0, KEY_SET_VALUE, &hkey) == ERROR_SUCCESS) {
+            if (g_savedRegLocale[0]) {
+                RegSetValueExW(hkey, L"Locale", 0, REG_SZ, (BYTE*)g_savedRegLocale, (wcslen(g_savedRegLocale) + 1) * sizeof(wchar_t));
+            }
+            RegCloseKey(hkey);
+        }
+        g_regLocaleModified = false;
+    }
+    return 0;
+}
+
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
     if (a->boostMode >= 0) {
@@ -2580,20 +2701,44 @@ static DWORD WINAPI launcherThread(LPVOID param) {
         }
     }
 
+    // 加速模式：启动前预读取目标exe到磁盘缓存，减少启动时的磁盘IO等待
+    // （Android/Wine下文件读取常是启动瓶颈，预读可明显缩短启动时间）
+    if (a->boostMode >= 0) {
+        HANDLE hPre = CreateFileW(a->target, GENERIC_READ, FILE_SHARE_READ, NULL,
+                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hPre != INVALID_HANDLE_VALUE) {
+            LARGE_INTEGER fsz;
+            if (GetFileSizeEx(hPre, &fsz) && fsz.QuadPart > 0) {
+                BYTE* buf = (BYTE*)malloc(1024 * 1024);  // 1MB 缓冲区
+                if (buf) {
+                    DWORD read;
+                    while (ReadFile(hPre, buf, 1024 * 1024, &read, NULL) && read > 0) {}
+                    free(buf);
+                }
+            }
+            CloseHandle(hPre);
+        }
+    }
+
+    // 转区：临时修改注册表locale（对读GetACP的纯Win32程序也有效）
+    // 环境变量方式已在上面构建envBlock，这里补充注册表方式，双管齐下
+    if (a->locale[0]) {
+        applyRegistryLocale(a->locale);
+    }
+
     BOOL ok = CreateProcessW(app, cmdLine, NULL, NULL, FALSE, 0, envBlock,
                              targetDir[0] ? targetDir : NULL, &si, &pi);
     if (envBlock) free(envBlock);
     if (ok) {
         CloseHandle(pi.hThread);
-        // 内存释放必须在游戏启动之前完成，这样释放的空间
-
-        // 可用于游戏自身的分配突发。裁剪游戏的
-
-        // 启动后裁剪工作集是无意义的（Wine 页面会被重新缺页载入
-
-        // 立即（只会导致卡顿），因此我们在这里从不触碰它。
-
+        // 启动后提升进程优先级，让游戏获得更多CPU时间片（加速启动+运行更流畅）
+        SetPriorityClass(pi.hProcess, ABOVE_NORMAL_PRIORITY_CLASS);
         CloseHandle(pi.hProcess);
+        // 如果修改了注册表locale，5秒后自动恢复（不影响后续启动的程序）
+        if (g_regLocaleModified) {
+            HANDLE hRestore = CreateThread(NULL, 0, restoreRegistryLocaleThread, NULL, 0, NULL);
+            if (hRestore) CloseHandle(hRestore);
+        }
     }
     else {
         // 非 PE 目标 / 基于关联打开的回退。
@@ -2654,6 +2799,14 @@ static void launchWithArgs(const wchar_t* args) {
 void onMenuItemRunDX11Click(void) { launchWithArgs(L"-force-d3d11 -force-d3d11-singlethread"); }
 void onMenuItemRunD3D9Click(void) { launchWithArgs(L"-force-d3d9"); }
 void onMenuItemRunNoDebugClick(void) { launchWithArgs(L"-force-opengl"); }
+// 通用启动参数预设（不绑定特定引擎，覆盖Unity/Unreal/Source等常见引擎）
+void onMenuItemRunWindowedClick(void) { launchWithArgs(L"-windowed -screen-fullscreen 0"); }
+void onMenuItemRunFullscreenClick(void) { launchWithArgs(L"-fullscreen -screen-fullscreen 1"); }
+void onMenuItemRunBorderlessClick(void) { launchWithArgs(L"-borderless -popupwindow"); }
+void onMenuItemRunVulkanClick(void) { launchWithArgs(L"-force-vulkan"); }
+void onMenuItemRunSingleThreadClick(void) { launchWithArgs(L"-singlethreaded -force-gfx-st"); }
+void onMenuItemRunNoSplashClick(void) { launchWithArgs(L"-novid -nosplash -nointro"); }
+void onMenuItemRunSafeModeClick(void) { launchWithArgs(L"-safe -novid -nosplash -autoconfig"); }
 
 // 辅助函数：以指定区域（locale）启动程序，设置LANG和LC_ALL环境变量
 // 适用于galgame等需要特定编码区域的程序（参考Locale Emulator思路，Wine下通过环境变量实现）
@@ -3385,7 +3538,10 @@ static void refreshPane(struct Pane* p) {
         ListView_SetItemCountEx(p->hwndList, p->numItems, 0);
     } else {
         // 普通模式：清空后手动插入每个项目，确保图标视图文件名正常显示和换行
+        // 优化：插入期间关闭重绘，全部插完再重绘，避免大目录下每次InsertItem触发
+        // 图标加载+重绘导致主线程卡死（Wine下尤其明显）
         ListView_DeleteAllItems(p->hwndList);
+        SendMessage(p->hwndList, WM_SETREDRAW, FALSE, 0);
         for (int i = 0; i < p->numItems; i++) {
             LVITEMW lvItem = {0};
             lvItem.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
@@ -3396,6 +3552,8 @@ static void refreshPane(struct Pane* p) {
             lvItem.lParam = (LPARAM)p->items[i].node;
             ListView_InsertItem(p->hwndList, &lvItem);
         }
+        SendMessage(p->hwndList, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(p->hwndList, NULL, TRUE);
     }
 
     updateStatusbar(p);
@@ -3410,9 +3568,10 @@ void refreshContentView() {
 }
 
 
-// 运行时语言切换后刷新列标题和状态栏
-
+// 运行时语言切换后刷新列标题、右键菜单文本和状态栏
 void cvRefreshLanguage(void) {
+    // 重新初始化右键菜单项文本（之前只在启动时初始化一次，导致语言切换后右键不变）
+    initContextMenuTexts();
     LVCOLUMNW lvc = {0};
     lvc.mask = LVCF_TEXT;
     for (int i = 0; i < NUM_PANES; i++) {
