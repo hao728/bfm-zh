@@ -35,6 +35,12 @@ static bool searchEditEmpty = true;
 static struct AddrButton* addrButtons = NULL;
 static int numAddrButtons = 0;
 
+// 应用字体到地址栏和搜索框（供main.c切换字体大小时调用）
+void navbarApplyFont(HFONT font) {
+    if (hwndAddrEdit) SendMessage(hwndAddrEdit, WM_SETFONT, (WPARAM)font, TRUE);
+    if (hwndSearchEdit) SendMessage(hwndSearchEdit, WM_SETFONT, (WPARAM)font, TRUE);
+}
+
 extern struct FileNode* currPathFileNode;
 extern HINSTANCE globalHInstance;
 extern HWND hwndMain;
