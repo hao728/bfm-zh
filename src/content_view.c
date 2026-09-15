@@ -213,6 +213,7 @@ extern HWND hwndMain;
 static void refreshPane(struct Pane* p);
 static void cvSetActiveByHwnd(HWND h);
 static void updatePaneLabel(struct Pane* p);
+static void updateStatusbar(struct Pane* p);
 void cvInvalidatePaneFrames(void); // main.c
 
 static struct Pane* activePane() {
