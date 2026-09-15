@@ -2458,6 +2458,16 @@ struct LauncherArg {
     wchar_t locale[32];      // locale for app-localized launch, e.g. "ja_JP.UTF-8" (empty = inherit)
 };
 
+/**
+ * Launches the selected application on a worker thread.
+ *
+ * Optionally releases memory before launch and supplies LANG and LC_ALL to the
+ * child process. The heap-allocated LauncherArg passed through param is freed
+ * before the thread returns.
+ *
+ * @param param Pointer to the LauncherArg that configures the launch.
+ * @return Always 0.
+ */
 static DWORD WINAPI launcherThread(LPVOID param) {
     struct LauncherArg* a = (struct LauncherArg*)param;
     if (a->boostMode >= 0) {
