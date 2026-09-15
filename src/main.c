@@ -448,13 +448,13 @@ HFONT getUIFont(void) {
         int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
         ReleaseDC(NULL, screen);
         if (dpiY <= 0) dpiY = 96;
-        // 在 Wine 的 freetype 下，小字号时 10pt 比 9pt 更清晰；
+        // 在 Wine 的 freetype 下，11pt 比 10pt 更清晰，中文渲染更饱满；
 
         // 进行钳制，避免配置错误的高 DPI 导致字体过大。
 
-        int height = -MulDiv(10, dpiY, 72);  // 10pt -> device pixels
-        if (height > -11) height = -11;
-        if (height < -18) height = -18;
+        int height = -MulDiv(11, dpiY, 72);  // 11pt -> device pixels
+        if (height > -12) height = -12;
+        if (height < -20) height = -20;
 
         wchar_t chosen[LF_FACESIZE] = {0};
 
@@ -683,6 +683,10 @@ void mainMenuCommand(WPARAM wParam) {
                 }
             }
             navigateRefresh();
+            break;
+        case ID_VIEW_MEMORY:
+            cvToggleMemoryDisplay();
+            if (hViewMenu) CheckMenuItem(hViewMenu, ID_VIEW_MEMORY, MF_BYCOMMAND | (cvMemoryVisible() ? MF_CHECKED : MF_UNCHECKED));
             break;
         case ID_NAV_BACK: navGoBack(); break;
         case ID_NAV_FORWARD: navGoForward(); break;
@@ -1398,10 +1402,14 @@ static void createMainMenu() {
     AppendMenu(hmView, MF_STRING, ID_VIEW_SPLIT, lc_str.split_view);
     AppendMenu(hmView, MF_STRING, ID_VIEW_PREVIEW, lc_str.preview_pane);
     AppendMenu(hmView, MF_STRING, ID_VIEW_HIDDEN, lc_str.show_hidden);
+    AppendMenu(hmView, MF_STRING, ID_VIEW_MEMORY, L"显示内存");
     AppendMenu(hmView, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmView, MF_STRING, ID_VIEW_GAME_MODE, lc_str.game_mode);
     AppendMenu(hmView, MF_STRING, ID_VIEW_COMPARE, lc_str.compare_panes);
     hViewMenu = hmView;
+    // 设置视图菜单初始勾选状态
+    CheckMenuItem(hViewMenu, ID_VIEW_HIDDEN, MF_BYCOMMAND | (showHiddenFiles ? MF_CHECKED : MF_UNCHECKED));
+    CheckMenuItem(hViewMenu, ID_VIEW_MEMORY, MF_BYCOMMAND | (cvMemoryVisible() ? MF_CHECKED : MF_UNCHECKED));
 
     HMENU hmNav = CreatePopupMenu();
     AppendMenu(hmNav, MF_STRING, ID_NAV_BACK, lc_str.nav_back);

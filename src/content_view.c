@@ -969,9 +969,9 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
         }
         case NM_CUSTOMDRAW: {
             LPNMLVCUSTOMDRAW lpcd = (LPNMLVCUSTOMDRAW)nmhdr;
-            // 自绘仅用于报表/详细信息视图。图标/列表视图使用默认渲染。
+            // 自绘用于报表视图和大图标视图（大图标需要多行文件名）
 
-            if (p->viewStyle != STYLE_DETAILS) return CDRF_DODEFAULT;
+            if (p->viewStyle != STYLE_DETAILS && p->viewStyle != STYLE_LARGE_ICON) return CDRF_DODEFAULT;
             if (lpcd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
             if (lpcd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
                 HDC hdc = lpcd->nmcd.hdc;
@@ -981,12 +981,43 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 RECT rc = lpcd->nmcd.rc;
                 int rowH = rc.bottom - rc.top;
 
-                // 必要时强制加载（LVS_OWNERDATA 可能在 getdispinfo 之前调用 customdraw）
+                // 必要时强制加载
 
                 if (!item->loaded) fillFileInfo(item->node, item);
 
                 BOOL selected = (ListView_GetItemState(p->hwndList, itemIdx, LVIS_SELECTED) & LVIS_SELECTED) != 0;
                 BOOL hovered = (itemIdx == hoveredItem);
+
+                // 大图标视图自定义绘制：图标+多行文件名
+                if (p->viewStyle == STYLE_LARGE_ICON) {
+                    // 绘制选中/悬停背景
+                    if (selected || hovered) {
+                        COLORREF bgColor = selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_HOTLIGHT);
+                        HBRUSH bgBrush = CreateSolidBrush(bgColor);
+                        RECT bgR = rc;
+                        bgR.left += 2; bgR.right -= 2; bgR.top += 2; bgR.bottom -= 2;
+                        FillRect(hdc, &bgR, bgBrush);
+                        DeleteObject(bgBrush);
+                    }
+
+                    // 绘制图标（居中上方，32x32）
+                    HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_NORMAL);
+                    if (himl) {
+                        int iconW = 32, iconH = 32;
+                        int iconX = rc.left + (rc.right - rc.left - iconW) / 2;
+                        int iconY = rc.top + 6;
+                        ImageList_Draw(himl, item->icon, hdc, iconX, iconY, ILD_TRANSPARENT);
+                    }
+
+                    // 绘制多行文件名（图标下方，居中，最多2行）
+                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
+                    SetBkMode(hdc, TRANSPARENT);
+                    HGDIOBJ oldFont = SelectObject(hdc, getUIFont());
+                    RECT textR = {rc.left + 4, rc.top + 44, rc.right - 4, rc.bottom - 4};
+                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+                    SelectObject(hdc, oldFont);
+                    return CDRF_SKIPDEFAULT;
+                }
 
                 // 使用系统颜色以正确适配深色/浅色主题
 
