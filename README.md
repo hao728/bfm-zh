@@ -1,124 +1,88 @@
-# Banner File Manager
+# BFM-Zh 中文增强版文件管理器
 
-**Banner File Manager (BFM)** is the in-container file manager for
-[**Bannerlator**](https://github.com/The412Banner/Bannerlator) — a lightweight, native
-Windows file manager that runs inside Wine/Proton containers on Android. It is a fork of the
-[Winlator File Manager](https://github.com/brunodev85/wfm) by **BrunoSX** (MIT), extended
-with a dual-pane mode, richer file actions, quality-of-life features, and full light/dark
-theme support.
+**BFM-Zh** 是 [Banner File Manager](https://github.com/The412Banner/banner-file-manager)（BFM）的中文汉化增强版，在 Winlator / Bannerlator / Bionic 等 Wine 容器中运行，替代容器自带的文件管理器。
 
-It ships on disk as `wfm.exe` (keeping the Bannerlator launch path unchanged) and is
-deployed into a container's `C:\windows\wfm.exe`.
+本项目在保留原版全部功能的基础上，做了大量中文化、界面优化与原创功能扩展。
 
-## Preview
+## ✨ 特色功能
 
-Runs inside a Bannerlator container and **honors the container's light and dark theme
-settings** — the whole UI (column header, status bar, search field, and address-bar
-buttons included) follows the active theme.
+### 🇨🇳 中文化
+- 全界面简体中文，注释代码全中文化
+- 内置 5 种语言，菜单栏「语言」可随时切换（简中 / 繁中 / 英文 / 葡语 / 俄语）
+- 全部文本基于 Locale 框架，非硬编码替换，可后续迭代
 
-| Single pane | Dual-pane split view | File actions |
-| :---: | :---: | :---: |
-| ![Single pane](docs/preview-single.jpg) | ![Dual-pane split view](docs/preview-split.jpg) | ![Context menu](docs/preview-menu.jpg) |
+### 🚀 启动增强
+- **加速运行（清内存）**：启动前清理内存，均衡模式释放内存并显示释放量
+- **激进加速**：更高内存压力压缩，适合接近设备内存上限的游戏
+- **以参数启动**：一键 `-force-d3d11` / `-force-d3d9` / `-force-opengl` / 自定义参数
+- **以指定区域运行**：转区启动（日文 / 简中 / 繁中 / 英文），解决 galgame、汉化补丁乱码问题
+- **自适应窗口 / 全屏**：统一引擎虚拟桌面，支持自定义分辨率
 
-<sub>Shown in dark mode; light mode is fully supported and matches the container theme.</sub>
+### 🖥️ 界面与视图
+- 大图标视图：自定义绘制，**多行文件名不截断**，支持超长文件名
+- 列表 / 小图标 / 详情视图完整支持，列排序可点击
+- 跟随容器明暗主题，控件全部适配
+- 字体统一 11pt 清晰化，菜单栏 / 右键菜单 / 标题栏同步提升
+- 磁盘容量条显示剩余 / 总容量，百分比居中
+- 状态栏内存显示可开关（查看菜单）
 
-## Features
+### 📁 文件管理
+- 双面板分屏：两个独立面板，支持对比、跨面板复制粘贴
+- **鼠标拖拽**：文件拖到文件夹复制 / 移动，拖到外部程序打开（OLE 拖放）
+- **图标检查器**（原创）：exe/dll 多尺寸图标预览（16-256px），保存 ICO / BMP
+- **文件关联管理器**（原创）：为文件类型指定打开程序，仅存 BFM 注册表，不干预 Wine 全局
+- 提取图标 / 计算 MD5 / SHA1 / SHA256 / 查看文本 / 计算文件夹大小
+- 收藏夹：收藏常用路径，快速访问
+- 预览面板：图片 / 文本快速预览
+- 复制进度条带取消，大目录加载不卡顿（虚拟列表 + 缓存）
 
-**Core**
-- Tree + list navigation with breadcrumb address bar, path typing, and search.
-- Copy / cut / paste / delete / rename, new file / new folder, create shortcuts.
-- Details / list / small-icon / large-icon views with click-to-sort columns.
-- ISO / BIN / CUE image mounting (via `libcdio`).
+### 🔌 其他
+- ISO / BIN / CUE 镜像挂载（内置 libcdio）
+- 注册表右键菜单扩展支持
+- 设置持久化：视图样式、排序、隐藏文件、双面板状态重启后保留
 
-**Dual-pane (split) view** — `View ▸ Split View`
-- Two independent folder panes side by side; the active pane is accent-highlighted.
-- Each pane has its own path bar; click a pane to make it active.
-- Copy in one pane, paste into the other.
+## 📦 安装
 
-**File actions**
-- **Open as administrator** (`runas`).
-- **Open with ▸** — a submenu of registered applications, plus *Choose another program…*
-  which opens Wine's Open-With dialog.
-- **Properties** dialog (name, type, location, size, modified date).
+> 适用于 Winlator / Bannerlator / Bionic 等 Wine 容器（x86-64）。
 
-**Quality of life**
-- Keyboard shortcuts: `F2` rename, `Del` delete, `F5` refresh, `F6` toggle split,
-  `Backspace` up, `Enter` open, `Ctrl+C/X/V/A`.
-- **Show Hidden Files** toggle (`View` menu).
-- Byte-accurate **copy progress bar** with cancel.
-- Status bar shows item count **and total size** of the current folder.
+**方式一：一键脚本（推荐）**
+1. 下载 Release 中的 `bfm-zh-x64.zip`
+2. 解压后，将整个文件夹放入容器可访问的目录（如 D 盘）
+3. 在容器中运行 `安装.bat`：自动备份原版 → 覆盖安装 → 重启 WFM
+4. 还原：运行 `还原.bat` 恢复原版
 
-**Performance**
-- **Large folders load and scroll without stalling.** File size and date are taken
-  straight from the directory enumeration instead of stat-ing every file, so a folder of
-  thousands of entries no longer does thousands of sync round-trips at load time.
-- Icon and type-name lookups are **cached per file extension** and persist across
-  navigation, so re-entering a folder (or opening another folder of the same file types)
-  is instant. The list is virtual — only visible rows are ever realized.
+**方式二：手动覆盖**
+1. 解压 `bfm-zh-x64.zip`
+2. 将 `wfm.exe` 和 `libcdio.dll` 复制到容器 `C:\windows\` 覆盖原文件
+3. 重启 WFM（关闭容器重进）
 
-**Reliability**
-- Copy / move / delete are implemented directly on Win32 file APIs
-  (`CopyFileExW` / `MoveFileExW` / `DeleteFileW` + manual recursion) instead of shell32
-  `SHFileOperation`. This sidesteps the Wine `shell32` copy-paste crash seen on Proton
-  10.0-4 and enables real byte-level progress + cancel.
-- The binary carries a proper Windows **version resource** (company, product, version),
-  so it shows correct file properties and is no longer flagged by reputation-based
-  antivirus heuristics for missing metadata.
-
-**Appearance**
-- Segoe UI font, full-row selection, flicker-free (double-buffered) list.
-- **Follows the container's light or dark theme.** Several common controls that Wine
-  renders light regardless of theme (the column header, status bar, search field,
-  address-bar buttons, and the list/tree scrollbars) are owner-drawn to match the active
-  theme, and re-color on a live theme switch.
-
-## Compatibility
-
-The x86-64 build is **universal** across Bannerlator's container arches:
-
-| Container | Translator | Runs |
-| --- | --- | --- |
-| x86-64 | Box64 | natively |
-| arm64ec | wowbox64 (x64-on-arm64ec) | ✓ |
-| any | FEXCore | ✓ |
-
-There is no CPU-arch-specific code — BFM is a plain Win32 application, so the translator
-only affects instruction execution, not behavior.
-
-## Build
-
-**Windows (as upstream):** `w64devkit` + the provided `Makefile` / `build.bat`.
-
-**Cross-compile (x86-64), as CI does:**
+## 🛠 构建
 
 ```sh
 CC=x86_64-w64-mingw32-gcc
 RC=x86_64-w64-mingw32-windres
 INCLUDES="-I./include -I./include/libcdio"
 CFLAGS="-O2 -std=c99 -DUNICODE -D_UNICODE -DCOBJMACROS -DWINVER=0x0600 -Wall"
-SRCS="main content_view toolbar navbar treeview sizebar statusbar file_node file_actions input_dialog"
+SRCS="main theme config favorites diff content_view toolbar navbar treeview sizebar statusbar file_node file_actions input_dialog"
 
 mkdir -p obj
 for f in $SRCS; do $CC $CFLAGS $INCLUDES -c "src/$f.c" -o "obj/$f.o"; done
 $RC $INCLUDES -I./res -i res/resource.rc -o obj/resource.o
-$CC -o wfm.exe obj/*.o -s -lcomctl32 -lgdi32 -lole32 -luuid -luxtheme ./libcdio.dll -Wl,--subsystem,windows
+$CC -o wfm.exe obj/*.o -s -lcomctl32 -lgdi32 -lole32 -loleaut32 -luuid -luxtheme -lshlwapi -lcrypt32 ./libcdio.dll -Wl,--subsystem,windows
 ```
 
-`.github/workflows/build-x64.yml` runs this on Ubuntu with `mingw-w64` and publishes
-`wfm.exe` + `libcdio.dll` as a build artifact. `libcdio.dll` must sit next to `wfm.exe`
-(it provides ISO-mount support).
+GitHub Actions 已配置自动构建，每次提交自动出包。
 
-## License
+## 📄 开源协议
 
-Banner File Manager is licensed under the **GNU General Public License v3.0 or later**
-(GPL-3.0-or-later) — see [`LICENSE`](LICENSE).
-Copyright © 2026 The412Banner.
+本项目基于 [GPL-3.0-or-later](LICENSE) 发布。
 
-- It incorporates code from the **Winlator File Manager** © 2023 **BrunoSX**, originally
-  under the MIT License. That code remains under MIT; its notice is preserved in
-  [`LICENSE.WFM`](LICENSE.WFM). MIT-licensed code may be incorporated into a GPL work.
-- It bundles and links **`libcdio`** (for ISO/BIN/CUE mounting), which is itself
-  **GPL-3.0-or-later**. Because the distributed `wfm.exe` links libcdio, the combined
-  binary is governed by the GPL — which is why the project as a whole is GPL-licensed.
+- 上游：[The412Banner/banner-file-manager](https://github.com/The412Banner/banner-file-manager)（GPL-3.0-or-later）
+- 原始 WFM：[brunodev85/wfm](https://github.com/brunodev85/wfm)（MIT，版权声明见 [LICENSE.WFM](LICENSE.WFM)）
+- 内置 libcdio（GPL-3.0-or-later）
 
-Credits: **BrunoSX** (original WFM) and the **libcdio** authors.
+本仓库为上游 BFM 的汉化与功能增强分支，所有新增代码遵循 GPL-3.0-or-later，使用请保留上游版权声明。
+
+## 👤 维护
+
+本分支由 [hao728](https://github.com/hao728) 维护。
