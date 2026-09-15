@@ -445,6 +445,7 @@ static HFONT uiFont = NULL;
 static int g_fontSizePt = 11;  // 用户可配置的UI字体大小（pt），默认11
 
 // 从注册表加载字体大小设置
+/** Loads the persisted UI font size from the current user's registry. */
 static void loadFontSize(void) {
     HKEY hkey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0, KEY_READ, &hkey) == ERROR_SUCCESS) {
@@ -457,6 +458,7 @@ static void loadFontSize(void) {
 }
 
 // 保存字体大小到注册表
+/** Persists the selected UI font size for the current user. */
 static void saveFontSize(int pt) {
     HKEY hkey;
     if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkey) == ERROR_SUCCESS) {
@@ -467,6 +469,7 @@ static void saveFontSize(int pt) {
 }
 
 // 应用新字体大小：销毁旧字体，重新创建，更新所有控件
+/** Applies a new UI font size to the application's visible controls. */
 static void applyFontSize(int pt) {
     g_fontSizePt = pt;
     saveFontSize(pt);
@@ -491,6 +494,7 @@ static void applyFontSize(int pt) {
     DrawMenuBar(hwndMain);
 }
 
+/** Returns the cached CJK-capable UI font at the configured size. */
 HFONT getUIFont(void) {
     if (!uiFont) {
         HDC screen = GetDC(NULL);
@@ -558,6 +562,7 @@ HFONT getUIFont(void) {
 // 原因：主区域控件使用 getUIFont()（11pt）而菜单/标题栏使用系统默认字体（Bionic下偏小）。
 // 影响范围：仅修改 NONCLIENTMETRICS 的菜单与标题字体高度，字体名保持系统默认。
 // 回滚：删除本函数调用即可恢复系统默认菜单字体。
+/** Enlarges the system menu and caption fonts to match the application UI. */
 static void boostSystemFonts(void) {
     NONCLIENTMETRICSW ncm;
     ZeroMemory(&ncm, sizeof(ncm));
@@ -684,6 +689,7 @@ extern void onMenuItemUnloadISOImageClick(void);
 
 static void createMainMenu();
 
+/** Dispatches a command selected from the main application menu. */
 void mainMenuCommand(WPARAM wParam) {
     switch (LOWORD(wParam)) {
         case ID_EDIT_CUT:
@@ -1453,6 +1459,7 @@ void openFileNode(struct FileNode* node) {
     else navigateToFileNode(node);
 }
 
+/** Rebuilds the main menu and its current checked states. */
 static void createMainMenu() {
     HMENU hmOld = GetMenu(hwndMain);
 
@@ -1533,6 +1540,7 @@ static void createMainMenu() {
     if (hmOld) DestroyMenu(hmOld);
 }
 
+/** Initializes the application, creates its main window, and runs the message loop. */
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int nCmdShow) {
     int numArgs;
     wchar_t** args = CommandLineToArgvW(GetCommandLineW(), &numArgs);
