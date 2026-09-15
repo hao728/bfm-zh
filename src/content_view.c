@@ -3385,7 +3385,10 @@ static void refreshPane(struct Pane* p) {
         ListView_SetItemCountEx(p->hwndList, p->numItems, 0);
     } else {
         // 普通模式：清空后手动插入每个项目，确保图标视图文件名正常显示和换行
+        // 优化：插入期间关闭重绘，全部插完再重绘，避免大目录下每次InsertItem触发
+        // 图标加载+重绘导致主线程卡死（Wine下尤其明显）
         ListView_DeleteAllItems(p->hwndList);
+        SendMessage(p->hwndList, WM_SETREDRAW, FALSE, 0);
         for (int i = 0; i < p->numItems; i++) {
             LVITEMW lvItem = {0};
             lvItem.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
@@ -3396,6 +3399,8 @@ static void refreshPane(struct Pane* p) {
             lvItem.lParam = (LPARAM)p->items[i].node;
             ListView_InsertItem(p->hwndList, &lvItem);
         }
+        SendMessage(p->hwndList, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(p->hwndList, NULL, TRUE);
     }
 
     updateStatusbar(p);
