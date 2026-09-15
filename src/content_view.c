@@ -1452,18 +1452,18 @@ void setViewStyle(enum ViewStyle newViewStyle) {
     switch (newViewStyle) {
         case STYLE_LARGE_ICON:
             wndstyle |= LVS_ICON | LVS_AUTOARRANGE;
-            // 大图标视图：增大图标间距，确保文件名有足够空间显示（支持两行）
-            ListView_SetIconSpacing(p->hwndList, 150, 140);
+            // 大图标视图：紧凑布局，确保文件名有足够空间
+            ListView_SetIconSpacing(p->hwndList, 130, 120);
             break;
         case STYLE_SMALL_ICON:
             wndstyle |= LVS_SMALLICON | LVS_AUTOARRANGE;
-            // 小图标视图：增大图标间距，确保长文件名不被截断
-            ListView_SetIconSpacing(p->hwndList, 220, 36);
+            // 小图标视图：紧凑布局
+            ListView_SetIconSpacing(p->hwndList, 200, 32);
             break;
         case STYLE_LIST:
             wndstyle |= LVS_LIST | LVS_AUTOARRANGE;
-            // 列表视图：自动多列排列，设置合适的图标间距
-            ListView_SetIconSpacing(p->hwndList, 220, 24);
+            // 列表视图：紧凑多列排列
+            ListView_SetIconSpacing(p->hwndList, 200, 22);
             break;
         case STYLE_DETAILS:
             wndstyle |= LVS_REPORT;
@@ -1742,13 +1742,13 @@ void cvInitPanePaths() {
             wndstyle &= ~LVS_OWNERDATA;
             if (panes[i].viewStyle == STYLE_LARGE_ICON) {
                 wndstyle |= LVS_ICON | LVS_AUTOARRANGE;
-                ListView_SetIconSpacing(panes[i].hwndList, 150, 140);
+                ListView_SetIconSpacing(panes[i].hwndList, 130, 120);
             } else if (panes[i].viewStyle == STYLE_SMALL_ICON) {
                 wndstyle |= LVS_SMALLICON | LVS_AUTOARRANGE;
-                ListView_SetIconSpacing(panes[i].hwndList, 220, 36);
+                ListView_SetIconSpacing(panes[i].hwndList, 200, 32);
             } else if (panes[i].viewStyle == STYLE_LIST) {
                 wndstyle |= LVS_LIST | LVS_AUTOARRANGE;
-                ListView_SetIconSpacing(panes[i].hwndList, 220, 24);
+                ListView_SetIconSpacing(panes[i].hwndList, 200, 22);
             }
         }
         SetWindowLongPtr(panes[i].hwndList, GWL_STYLE, wndstyle);
