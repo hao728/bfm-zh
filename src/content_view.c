@@ -1421,7 +1421,8 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
         }
         case LVN_ITEMCHANGED: {
             // 选中项变化时刷新状态栏（显示选中项大小）
-            cvSetActiveByHwnd(nmhdr->hwndFrom);
+            if (nmhdr->hwndFrom == activePane()->hwndList)
+                updateStatusbar(activePane());
             updateStatusbar(activePane());
             break;
         }
