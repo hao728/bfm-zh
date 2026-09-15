@@ -2523,43 +2523,43 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     // 如果指定了locale，构建自定义环境块（设置LANG和LC_ALL）
     LPVOID envBlock = NULL;
     if (a->locale[0]) {
-        // 获取当前环境块
         wchar_t* curEnv = GetEnvironmentStringsW();
         if (curEnv) {
-            // 先计算新环境块大小
             int totalSize = 0;
             wchar_t* p = curEnv;
             while (*p) {
-                // 跳过LANG和LC_ALL（不区分大小写，匹配到=号前）
-                bool skip = (_wcsnicmp(p, L"LANG=", 5) == 0 || _wcsnicmp(p, L"LC_ALL=", 7) == 0);
-                if (!skip) {
-                    totalSize += (int)wcslen(p) + 1;
-                }
+                // 跳过已有的LANG和LC_ALL（前缀匹配）
+                bool skip = (wcsncmp(p, L"LANG=", 5) == 0 || wcsncmp(p, L"LC_ALL=", 7) == 0);
+                if (!skip) totalSize += (int)wcslen(p) + 1;
                 p += wcslen(p) + 1;
             }
-            // 加上LANG和LC_ALL两个变量 + 结束的\0
-            totalSize += (int)wcslen(a->locale) + 6;  // LANG=xxx\0
-            totalSize += (int)wcslen(a->locale) + 8;  // LC_ALL=xxx\0
-            totalSize += 1;  // final null
+            // LANG=xxx\0 + LC_ALL=xxx\0 + 结束\0
+            int localeLen = (int)wcslen(a->locale);
+            totalSize += localeLen + 6;  // LANG= (5) + locale + \0
+            totalSize += localeLen + 8;  // LC_ALL= (7) + locale + \0
+            totalSize += 1;
 
             envBlock = malloc(totalSize * sizeof(wchar_t));
             if (envBlock) {
                 wchar_t* dst = (wchar_t*)envBlock;
                 p = curEnv;
                 while (*p) {
-                    bool skip = (_wcsnicmp(p, L"LANG=", 5) == 0 || _wcsnicmp(p, L"LC_ALL=", 7) == 0);
+                    bool skip = (wcsncmp(p, L"LANG=", 5) == 0 || wcsncmp(p, L"LC_ALL=", 7) == 0);
                     if (!skip) {
                         wcscpy(dst, p);
                         dst += wcslen(p) + 1;
                     }
                     p += wcslen(p) + 1;
                 }
-                // 添加LANG和LC_ALL
-                swprintf_s(dst, 1024, L"LANG=%ls", a->locale);
+                // 添加LANG=locale
+                wcscpy(dst, L"LANG=");
+                wcscat(dst, a->locale);
                 dst += wcslen(dst) + 1;
-                swprintf_s(dst, 1024, L"LC_ALL=%ls", a->locale);
+                // 添加LC_ALL=locale
+                wcscpy(dst, L"LC_ALL=");
+                wcscat(dst, a->locale);
                 dst += wcslen(dst) + 1;
-                *dst = L'\0';  // 环境块结束
+                *dst = L'\0';
             }
             FreeEnvironmentStringsW(curEnv);
         }
