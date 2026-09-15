@@ -992,7 +992,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 if (p->viewStyle == STYLE_LARGE_ICON) {
                     // 绘制选中/悬停背景
                     if (selected || hovered) {
-                        COLORREF bgColor = selected ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_HOTLIGHT);
+                        COLORREF bgColor = selected ? GetSysColor(COLOR_HIGHLIGHT) : RGB(0, 120, 215);
                         HBRUSH bgBrush = CreateSolidBrush(bgColor);
                         RECT bgR = rc;
                         bgR.left += 2; bgR.right -= 2; bgR.top += 2; bgR.bottom -= 2;
