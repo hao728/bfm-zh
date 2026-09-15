@@ -116,6 +116,7 @@ static struct ContextMenuItem cmiRename = {NULL, &onMenuItemRenameClick, NULL};
 static struct ContextMenuItem cmiPaste = {NULL, &onMenuItemPasteClick, NULL};
 static struct ContextMenuItem cmiPasteShortcut = {NULL, &onMenuItemPasteShortcutClick, NULL};
 static struct ContextMenuItem cmiNewFolder = {NULL, &onMenuItemNewFolderClick, NULL};
+static struct ContextMenuItem cmiRefresh = {NULL, &onMenuItemRefreshClick, NULL};
 static struct ContextMenuItem cmiNewFile = {NULL, &onMenuItemNewFileClick, NULL};
 static struct ContextMenuItem cmiLoadISOImage = {NULL, &onMenuItemLoadISOImageClick, NULL};
 static struct ContextMenuItem cmiUnloadISOImage = {NULL, &onMenuItemUnloadISOImageClick, NULL};
@@ -431,10 +432,9 @@ static void updateStatusbar(struct Pane* p) {
         }
     }
 
-    // 当前驱动器的可用空间
-
+    // 当前驱动器的可用空间（也受存储信息开关控制）
     wchar_t freeStr[48] = {0};
-    if (currPathFileNode) {
+    if (showMemoryInStatusbar && currPathFileNode) {
         wchar_t path[MAX_PATH] = {0};
         getFileNodePath(currPathFileNode, path);
         if (wcslen(path) == 2 && path[1] == L':') wcscat_s(path, MAX_PATH, L"\\");
@@ -1016,6 +1016,7 @@ static void createContextMenu(enum ContextMenuType type) {
         }
     }
     else {
+        addContextMenuItem(hMenu, id++, &cmiRefresh, true);
         addContextMenuItem(hMenu, id++, &cmiPaste, false);
         addContextMenuItem(hMenu, id++, &cmiPasteShortcut, true);
         createCDDriveContextMenu(&id);
@@ -1087,7 +1088,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     SetBkMode(hdc, TRANSPARENT);
                     HGDIOBJ oldFont = SelectObject(hdc, getUIFont());
                     RECT textR = {rc.left + 4, rc.top + 44, rc.right - 4, rc.bottom - 4};
-                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK);
+                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK | DT_END_ELLIPSIS);
                     SelectObject(hdc, oldFont);
                     return CDRF_SKIPDEFAULT;
                 }
@@ -1562,8 +1563,8 @@ void setViewStyle(enum ViewStyle newViewStyle) {
     switch (newViewStyle) {
         case STYLE_LARGE_ICON:
             wndstyle |= LVS_ICON | LVS_AUTOARRANGE;
-            // 大图标视图：紧凑布局，确保文件名有足够空间
-            ListView_SetIconSpacing(p->hwndList, 130, 120);
+            // 大图标视图：增大高度给多行文件名留空间
+            ListView_SetIconSpacing(p->hwndList, 130, 140);
             break;
         case STYLE_SMALL_ICON:
             wndstyle |= LVS_SMALLICON | LVS_AUTOARRANGE;
@@ -1701,23 +1702,22 @@ static HWND createOneContentView() {
 
     if (!g_dropTarget) g_dropTarget = createDropTarget();
     if (g_dropTarget) RegisterDragDrop(hwnd, g_dropTarget);
-    // 现代列表行为：整行选择、无闪烁滚动、整洁标签提示。
+    // 现代列表行    // 列宽经过调整：名称列留足长文件名空间，日期列确保完整显示日期+时间
+    column.cx = 160;
+    column.pszText = lc_str.name;
+    ListView_InsertColumn(hwndList, COLUMN_NAME_IDX, &column);
 
-    // 注意：不要在这里调用 SetWindowTheme("Explorer")——在深色容器主题下它会强制
+    column.cx = 80;
+    column.pszText = lc_str.type;
+    ListView_InsertColumn(hwndList, COLUMN_TYPE_IDX, &column);
 
-    // 浅色标题栏导致列标题不可读。
+    column.cx = 140;
+    column.pszText = lc_str.size;
+    ListView_InsertColumn(hwndList, COLUMN_SIZE_IDX, &column);
 
-    ListView_SetExtendedListViewStyle(hwnd, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
-    createLVColumns(hwnd);
-
-    // 自绘列标题为深色（见 HeaderWndProc）。两个列表视图共享
-
-    // 相同的标题类，因此只捕获一次原始过程。
-
-    HWND hdr = (HWND)SendMessage(hwnd, LVM_GETHEADER, 0, 0);
-    if (hdr) {
-        if (!OrigHeaderProc) OrigHeaderProc = (WNDPROC)GetWindowLongPtr(hdr, GWLP_WNDPROC);
-        SetWindowLongPtr(hdr, GWLP_WNDPROC, (LONG_PTR)HeaderWndProc);
+    column.cx = 160;
+    column.pszText = lc_str.date;
+    ListView_InsertColumn(hwndList, COLUMN_DATE_IDX, &column);Proc);
     }
 
     UpdateWindow(hwnd);
@@ -1736,6 +1736,7 @@ static void initContextMenuTexts(void) {
     cmiPaste.text = lc_str.paste;
     cmiPasteShortcut.text = lc_str.paste_shortcut;
     cmiNewFolder.text = lc_str.new_folder;
+    cmiRefresh.text = L"刷新";
     cmiNewFile.text = lc_str.new_file;
     cmiUnloadISOImage.text = lc_str.unload_iso_image;
     cmiOpenAsAdmin.text = lc_str.open_as_admin;
@@ -3315,6 +3316,16 @@ void onMenuItemPasteShortcutClick() {
     getFileNodePath(currPathFileNode, path);
     if (!isPathExists(path)) return;
     pasteShortcuts(path);
+}
+
+void onMenuItemRefreshClick() {
+    // 刷新当前面板（重新读取目录）
+    struct Pane* p = activePane();
+    if (p && currPathFileNode) {
+        wchar_t path[MAX_PATH] = {0};
+        getFileNodePath(currPathFileNode, path);
+        cvNavigateTo(path);
+    }
 }
 
 void onMenuItemNewFolderClick() {

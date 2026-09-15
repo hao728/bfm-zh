@@ -1024,7 +1024,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 SetTextColor(hdc, GetSysColor(COLOR_GRAYTEXT));
                 HFONT old = (HFONT)SelectObject(hdc, getUIFont());
                 RECT tr = {margin, y, rc.right - margin, y + 40};
-                DrawTextW(hdc, L"Select a file to preview", -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                DrawTextW(hdc, L"选择文件以预览", -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                 SelectObject(hdc, old);
                 EndPaint(hwnd, &ps);
                 return 0;
@@ -1109,19 +1109,19 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             wchar_t row[128];
             int rowH = 20;
             if (previewTypeName[0]) {
-                swprintf_s(row, 128, L"Type: %ls", previewTypeName);
+                swprintf_s(row, 128, L"类型：%ls", previewTypeName);
                 RECT rr = {margin, y, rc.right - margin, y + rowH};
                 DrawTextW(hdc, row, -1, &rr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 y += rowH;
             }
             if (previewSizeStr[0]) {
-                swprintf_s(row, 128, L"Size: %ls", previewSizeStr);
+                swprintf_s(row, 128, L"大小：%ls", previewSizeStr);
                 RECT rr = {margin, y, rc.right - margin, y + rowH};
                 DrawTextW(hdc, row, -1, &rr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 y += rowH;
             }
             if (previewDateStr[0]) {
-                swprintf_s(row, 128, L"Modified: %ls", previewDateStr);
+                swprintf_s(row, 128, L"修改时间：%ls", previewDateStr);
                 RECT rr = {margin, y, rc.right - margin, y + rowH};
                 DrawTextW(hdc, row, -1, &rr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                 y += rowH;
