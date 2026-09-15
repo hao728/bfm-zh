@@ -16,7 +16,7 @@ HINSTANCE globalHInstance = NULL;
 HWND hwndMain = NULL;
 HWND hwndTabs = NULL;
 HWND hwndPreview = NULL;
-bool previewOn = false;
+bool previewOn = true;  // 默认开启预览窗格，提升实用性
 struct LC_STR lc_str = {0};
 void resizeControls(void);  // forward: tab visibility changes trigger relayout
 void previewUpdate(void);   // forward: refresh preview pane for current selection
@@ -442,19 +442,70 @@ static INT CALLBACK enumCJKFontProc(const LOGFONTW* lf, const TEXTMETRICW* tm,
 // 高密度手机面板。
 
 static HFONT uiFont = NULL;
+static int g_fontSizePt = 11;  // 用户可配置的UI字体大小（pt），默认11
+
+// 从注册表加载字体大小设置
+/** Loads the persisted UI font size from the current user's registry. */
+static void loadFontSize(void) {
+    HKEY hkey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0, KEY_READ, &hkey) == ERROR_SUCCESS) {
+        DWORD val = 0, sz = sizeof(val);
+        if (RegQueryValueExW(hkey, L"FontSize", NULL, NULL, (BYTE*)&val, &sz) == ERROR_SUCCESS) {
+            if (val >= 8 && val <= 20) g_fontSizePt = (int)val;
+        }
+        RegCloseKey(hkey);
+    }
+}
+
+// 保存字体大小到注册表
+/** Persists the selected UI font size for the current user. */
+static void saveFontSize(int pt) {
+    HKEY hkey;
+    if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkey) == ERROR_SUCCESS) {
+        DWORD val = (DWORD)pt;
+        RegSetValueExW(hkey, L"FontSize", 0, REG_DWORD, (BYTE*)&val, sizeof(val));
+        RegCloseKey(hkey);
+    }
+}
+
+// 应用新字体大小：销毁旧字体，重新创建，更新所有控件
+/** Applies a new UI font size to the application's visible controls. */
+static void applyFontSize(int pt) {
+    g_fontSizePt = pt;
+    saveFontSize(pt);
+    // 销毁旧字体，getUIFont会重新创建
+    if (uiFont) { DeleteObject(uiFont); uiFont = NULL; }
+    HFONT newFont = getUIFont();
+    // 更新所有使用getUIFont的控件
+    HWND ctrls[] = { hwndMain, hwndTabs, hwndPreview, hwndStatusbar, hwndTreeview,
+                     hwndToolbar, hwndNavbar, hwndAddrEdit, hwndSearchEdit };
+    for (int i = 0; i < (int)(sizeof(ctrls)/sizeof(ctrls[0])); i++) {
+        if (ctrls[i]) SendMessage(ctrls[i], WM_SETFONT, (WPARAM)newFont, TRUE);
+    }
+    // 两个面板的列表和路径标签
+    for (int i = 0; i < NUM_PANES; i++) {
+        if (panes[i].hwndList) SendMessage(panes[i].hwndList, WM_SETFONT, (WPARAM)newFont, TRUE);
+        if (panes[i].hwndPathLabel) SendMessage(panes[i].hwndPathLabel, WM_SETFONT, (WPARAM)newFont, TRUE);
+    }
+    // 同步提升系统菜单/标题字体
+    boostSystemFonts();
+    // 强制重绘
+    InvalidateRect(hwndMain, NULL, TRUE);
+    DrawMenuBar(hwndMain);
+}
+
+/** Returns the cached CJK-capable UI font at the configured size. */
 HFONT getUIFont(void) {
     if (!uiFont) {
         HDC screen = GetDC(NULL);
         int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
         ReleaseDC(NULL, screen);
         if (dpiY <= 0) dpiY = 96;
-        // 在 Wine 的 freetype 下，11pt 比 10pt 更清晰，中文渲染更饱满；
+        // 使用用户配置的字体大小（默认11pt），钳制防止异常
 
-        // 进行钳制，避免配置错误的高 DPI 导致字体过大。
-
-        int height = -MulDiv(11, dpiY, 72);  // 11pt -> device pixels
-        if (height > -12) height = -12;
-        if (height < -20) height = -20;
+        int height = -MulDiv(g_fontSizePt, dpiY, 72);
+        if (height > -10) height = -10;
+        if (height < -28) height = -28;
 
         wchar_t chosen[LF_FACESIZE] = {0};
 
@@ -521,9 +572,9 @@ static void boostSystemFonts(void) {
     int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
     ReleaseDC(NULL, screen);
     if (dpiY <= 0) dpiY = 96;
-    int h = -MulDiv(11, dpiY, 72);  // 与 getUIFont 一致的 11pt
-    if (h > -12) h = -12;
-    if (h < -20) h = -20;
+    int h = -MulDiv(g_fontSizePt, dpiY, 72);  // 与 getUIFont 一致的用户配置字体大小
+    if (h > -10) h = -10;
+    if (h < -28) h = -28;
     ncm.lfMenuFont.lfHeight = h;
     ncm.lfMenuFont.lfWeight = FW_NORMAL;
     ncm.lfCaptionFont.lfHeight = h;
@@ -638,6 +689,7 @@ extern void onMenuItemUnloadISOImageClick(void);
 
 static void createMainMenu();
 
+/** Dispatches a command selected from the main application menu. */
 void mainMenuCommand(WPARAM wParam) {
     switch (LOWORD(wParam)) {
         case ID_EDIT_CUT:
@@ -712,6 +764,10 @@ void mainMenuCommand(WPARAM wParam) {
             cvToggleMemoryDisplay();
             if (hViewMenu) CheckMenuItem(hViewMenu, ID_VIEW_MEMORY, MF_BYCOMMAND | (cvMemoryVisible() ? MF_CHECKED : MF_UNCHECKED));
             break;
+        case ID_VIEW_FONT_SMALL:  applyFontSize(9);  createMainMenu(); break;
+        case ID_VIEW_FONT_MEDIUM: applyFontSize(11); createMainMenu(); break;
+        case ID_VIEW_FONT_LARGE:  applyFontSize(13); createMainMenu(); break;
+        case ID_VIEW_FONT_XLARGE: applyFontSize(15); createMainMenu(); break;
         case ID_NAV_BACK: navGoBack(); break;
         case ID_NAV_FORWARD: navGoForward(); break;
         case ID_NAV_RECENT: recentMenu(); break;
@@ -1403,6 +1459,7 @@ void openFileNode(struct FileNode* node) {
     else navigateToFileNode(node);
 }
 
+/** Rebuilds the main menu and its current checked states. */
 static void createMainMenu() {
     HMENU hmOld = GetMenu(hwndMain);
 
@@ -1426,7 +1483,17 @@ static void createMainMenu() {
     AppendMenu(hmView, MF_STRING, ID_VIEW_SPLIT, lc_str.split_view);
     AppendMenu(hmView, MF_STRING, ID_VIEW_PREVIEW, lc_str.preview_pane);
     AppendMenu(hmView, MF_STRING, ID_VIEW_HIDDEN, lc_str.show_hidden);
-    AppendMenu(hmView, MF_STRING, ID_VIEW_MEMORY, L"显示内存");
+    AppendMenu(hmView, MF_STRING, ID_VIEW_MEMORY, L"显示存储信息");
+    // 字体大小子菜单：用户可自由调整，比自适应DPI更直接有效
+    {
+        HMENU hmFont = CreatePopupMenu();
+        UINT checked = MF_BYCOMMAND | MF_CHECKED;
+        AppendMenu(hmFont, (g_fontSizePt == 9 ? checked : MF_STRING), ID_VIEW_FONT_SMALL, L"小 (9pt)");
+        AppendMenu(hmFont, (g_fontSizePt == 11 ? checked : MF_STRING), ID_VIEW_FONT_MEDIUM, L"标准 (11pt)");
+        AppendMenu(hmFont, (g_fontSizePt == 13 ? checked : MF_STRING), ID_VIEW_FONT_LARGE, L"大 (13pt)");
+        AppendMenu(hmFont, (g_fontSizePt == 15 ? checked : MF_STRING), ID_VIEW_FONT_XLARGE, L"特大 (15pt)");
+        AppendMenu(hmView, MF_POPUP | MF_STRING, (UINT_PTR)hmFont, lc_str.font_size);
+    }
     AppendMenu(hmView, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmView, MF_STRING, ID_VIEW_GAME_MODE, lc_str.game_mode);
     AppendMenu(hmView, MF_STRING, ID_VIEW_COMPARE, lc_str.compare_panes);
@@ -1485,6 +1552,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     loadLCStrings(L"zh-CN");
 
     globalHInstance = hInstance;
+
+    // 加载用户配置的字体大小（必须在第一次调用getUIFont之前）
+    loadFontSize();
 
     // 为 OLE 拖放初始化 COM
 

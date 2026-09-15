@@ -76,6 +76,10 @@
 #define ID_TOOL_LAUNCHER 386
 #define ID_FILE_DIFF 387
 #define ID_VIEW_PREVIEW 388
+#define ID_VIEW_FONT_SMALL 390
+#define ID_VIEW_FONT_MEDIUM 391
+#define ID_VIEW_FONT_LARGE 392
+#define ID_VIEW_FONT_XLARGE 393
 #define IDD_HASH 148
 #define IDC_HASH_RESULT 149
 
@@ -296,6 +300,15 @@ struct LC_STR {
     wchar_t* new_txt_name;
     wchar_t* diff_right_label;
     wchar_t* diff_left_label;
+    // v1.2.1-zh.3：转区启动、文件关联、字体大小等新增功能的i18n
+    wchar_t* locale_run;
+    wchar_t* locale_ja;
+    wchar_t* locale_zhcn;
+    wchar_t* locale_zhtw;
+    wchar_t* locale_en;
+    wchar_t* manage_assoc;
+    wchar_t* calc_sha1;
+    wchar_t* font_size;
 };
 
 extern struct LC_STR lc_str;
