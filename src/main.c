@@ -445,7 +445,6 @@ static HFONT uiFont = NULL;
 static int g_fontSizePt = 11;  // 用户可配置的UI字体大小（pt），默认11
 
 // 从注册表加载字体大小设置
-/** Loads the persisted UI font size from the current user's registry. */
 static void loadFontSize(void) {
     HKEY hkey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0, KEY_READ, &hkey) == ERROR_SUCCESS) {
@@ -458,7 +457,6 @@ static void loadFontSize(void) {
 }
 
 // 保存字体大小到注册表
-/** Persists the selected UI font size for the current user. */
 static void saveFontSize(int pt) {
     HKEY hkey;
     if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkey) == ERROR_SUCCESS) {
@@ -469,24 +467,24 @@ static void saveFontSize(int pt) {
 }
 
 // 应用新字体大小：销毁旧字体，重新创建，更新所有控件
-/** Applies a new UI font size to the application's visible controls. */
+static void boostSystemFonts(void);  // 前向声明（定义在下方）
+
 static void applyFontSize(int pt) {
     g_fontSizePt = pt;
     saveFontSize(pt);
     // 销毁旧字体，getUIFont会重新创建
     if (uiFont) { DeleteObject(uiFont); uiFont = NULL; }
     HFONT newFont = getUIFont();
-    // 更新所有使用getUIFont的控件
+    // 更新main.c可直接访问的控件
     HWND ctrls[] = { hwndMain, hwndTabs, hwndPreview, hwndStatusbar, hwndTreeview,
-                     hwndToolbar, hwndNavbar, hwndAddrEdit, hwndSearchEdit };
+                     hwndToolbar, hwndNavbar };
     for (int i = 0; i < (int)(sizeof(ctrls)/sizeof(ctrls[0])); i++) {
         if (ctrls[i]) SendMessage(ctrls[i], WM_SETFONT, (WPARAM)newFont, TRUE);
     }
-    // 两个面板的列表和路径标签
-    for (int i = 0; i < NUM_PANES; i++) {
-        if (panes[i].hwndList) SendMessage(panes[i].hwndList, WM_SETFONT, (WPARAM)newFont, TRUE);
-        if (panes[i].hwndPathLabel) SendMessage(panes[i].hwndPathLabel, WM_SETFONT, (WPARAM)newFont, TRUE);
-    }
+    // 面板列表/路径标签（通过content_view.c的函数访问static变量）
+    cvApplyFont(newFont);
+    // 地址栏/搜索框（通过navbar.c的函数访问static变量）
+    navbarApplyFont(newFont);
     // 同步提升系统菜单/标题字体
     boostSystemFonts();
     // 强制重绘
@@ -494,7 +492,6 @@ static void applyFontSize(int pt) {
     DrawMenuBar(hwndMain);
 }
 
-/** Returns the cached CJK-capable UI font at the configured size. */
 HFONT getUIFont(void) {
     if (!uiFont) {
         HDC screen = GetDC(NULL);
@@ -562,7 +559,6 @@ HFONT getUIFont(void) {
 // 原因：主区域控件使用 getUIFont()（11pt）而菜单/标题栏使用系统默认字体（Bionic下偏小）。
 // 影响范围：仅修改 NONCLIENTMETRICS 的菜单与标题字体高度，字体名保持系统默认。
 // 回滚：删除本函数调用即可恢复系统默认菜单字体。
-/** Enlarges the system menu and caption fonts to match the application UI. */
 static void boostSystemFonts(void) {
     NONCLIENTMETRICSW ncm;
     ZeroMemory(&ncm, sizeof(ncm));
@@ -689,7 +685,6 @@ extern void onMenuItemUnloadISOImageClick(void);
 
 static void createMainMenu();
 
-/** Dispatches a command selected from the main application menu. */
 void mainMenuCommand(WPARAM wParam) {
     switch (LOWORD(wParam)) {
         case ID_EDIT_CUT:
@@ -1459,7 +1454,6 @@ void openFileNode(struct FileNode* node) {
     else navigateToFileNode(node);
 }
 
-/** Rebuilds the main menu and its current checked states. */
 static void createMainMenu() {
     HMENU hmOld = GetMenu(hwndMain);
 
@@ -1540,7 +1534,6 @@ static void createMainMenu() {
     if (hmOld) DestroyMenu(hmOld);
 }
 
-/** Initializes the application, creates its main window, and runs the message loop. */
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int nCmdShow) {
     int numArgs;
     wchar_t** args = CommandLineToArgvW(GetCommandLineW(), &numArgs);
