@@ -76,6 +76,7 @@ static bool isArchiveExt(const wchar_t* path);
 static void startFileDrag(HWND hwnd);
 static void updateSelectedItems(void);
 static void onMenuItemNewTxtClick();
+static void onMenuItemRefreshClick();
 static void onMenuItemNewBatClick();
 static void onMenuItemNewRegClick();
 static IDropTarget* createDropTarget(void);
@@ -1702,24 +1703,7 @@ static HWND createOneContentView() {
 
     if (!g_dropTarget) g_dropTarget = createDropTarget();
     if (g_dropTarget) RegisterDragDrop(hwnd, g_dropTarget);
-    // 现代列表行    // 列宽经过调整：名称列留足长文件名空间，日期列确保完整显示日期+时间
-    column.cx = 160;
-    column.pszText = lc_str.name;
-    ListView_InsertColumn(hwndList, COLUMN_NAME_IDX, &column);
-
-    column.cx = 80;
-    column.pszText = lc_str.type;
-    ListView_InsertColumn(hwndList, COLUMN_TYPE_IDX, &column);
-
-    column.cx = 140;
-    column.pszText = lc_str.size;
-    ListView_InsertColumn(hwndList, COLUMN_SIZE_IDX, &column);
-
-    column.cx = 160;
-    column.pszText = lc_str.date;
-    ListView_InsertColumn(hwndList, COLUMN_DATE_IDX, &column);Proc);
-    }
-
+    createLVColumns(hwnd);
     UpdateWindow(hwnd);
     return hwnd;
 }
@@ -3320,11 +3304,10 @@ void onMenuItemPasteShortcutClick() {
 
 void onMenuItemRefreshClick() {
     // 刷新当前面板（重新读取目录）
-    struct Pane* p = activePane();
-    if (p && currPathFileNode) {
+    if (currPathFileNode) {
         wchar_t path[MAX_PATH] = {0};
         getFileNodePath(currPathFileNode, path);
-        cvNavigateTo(path);
+        navigateToPath(path);
     }
 }
 
