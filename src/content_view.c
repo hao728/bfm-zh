@@ -151,6 +151,10 @@ void onMenuItemFolderSizeClick(void);
 void onMenuItemHashSHA1Click(void);
 void onMenuItemHashSHA256Click(void);
 void onMenuItemProcessManagerClick(void);
+void onMenuItemRunLocaleJAClick(void);
+void onMenuItemRunLocaleZHCNClick(void);
+void onMenuItemRunLocaleZHTWClick(void);
+void onMenuItemRunLocaleENClick(void);
 
 static struct ContextMenuItem cmiLauncherBoost = {NULL, &onMenuItemLauncherBoostClick, NULL};
 static struct ContextMenuItem cmiLauncherBoostAggressive = {NULL, &onMenuItemLauncherBoostAggressiveClick, NULL};
@@ -165,6 +169,10 @@ static struct ContextMenuItem cmiHashSHA256 = {NULL, &onMenuItemHashSHA256Click,
 static struct ContextMenuItem cmiLauncherRunWith = {NULL, &onMenuItemLauncherRunWithClick, NULL};
 static struct ContextMenuItem cmiLauncherChoose = {NULL, &onMenuItemLauncherChooseClick, NULL};
 static struct ContextMenuItem cmiDiff = {NULL, &onMenuItemDiffClick, NULL};
+static struct ContextMenuItem cmiRunLocaleJA = {NULL, &onMenuItemRunLocaleJAClick, NULL};
+static struct ContextMenuItem cmiRunLocaleZHCN = {NULL, &onMenuItemRunLocaleZHCNClick, NULL};
+static struct ContextMenuItem cmiRunLocaleZHTW = {NULL, &onMenuItemRunLocaleZHTWClick, NULL};
+static struct ContextMenuItem cmiRunLocaleEN = {NULL, &onMenuItemRunLocaleENClick, NULL};
 
 static WNDPROC OrigWndProc;
 
@@ -909,6 +917,15 @@ static void createContextMenu(enum ContextMenuType type) {
                     addContextMenuItem(hArgs, id++, &cmiRunNoDebug, true);
                     AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hArgs, lc_str.run_with_args);
                 }
+                // "以指定区域运行"子菜单：设置LANG/LC_ALL环境变量，适用于galgame等需要特定编码的程序
+                {
+                    HMENU hLocale = CreatePopupMenu();
+                    addContextMenuItem(hLocale, id++, &cmiRunLocaleJA, false);
+                    addContextMenuItem(hLocale, id++, &cmiRunLocaleZHCN, false);
+                    addContextMenuItem(hLocale, id++, &cmiRunLocaleZHTW, false);
+                    addContextMenuItem(hLocale, id++, &cmiRunLocaleEN, true);
+                    AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hLocale, L"以指定区域运行");
+                }
                 createOpenWithMenu(&id);
                 addContextMenuItem(hMenu, id++, &cmiEdit, true);
                 createCDDriveContextMenu(&id);
@@ -1014,7 +1031,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     SetBkMode(hdc, TRANSPARENT);
                     HGDIOBJ oldFont = SelectObject(hdc, getUIFont());
                     RECT textR = {rc.left + 4, rc.top + 44, rc.right - 4, rc.bottom - 4};
-                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK);
                     SelectObject(hdc, oldFont);
                     return CDRF_SKIPDEFAULT;
                 }
@@ -1690,6 +1707,10 @@ void createContentView() {
     cmiLauncherRunWith.text = lc_str.launcher_run_with;
     cmiLauncherChoose.text = lc_str.launcher_choose;
     cmiDiff.text = lc_str.diff_files;
+    cmiRunLocaleJA.text = L"日文（日本）";
+    cmiRunLocaleZHCN.text = L"简体中文";
+    cmiRunLocaleZHTW.text = L"繁体中文";
+    cmiRunLocaleEN.text = L"英文（美国）";
 
     // 从注册表恢复已保存的视图样式、排序方式、隐藏文件、双面板状态
 
@@ -2434,6 +2455,7 @@ struct LauncherArg {
     wchar_t extraArgs[256];  // command-line args appended to the game (Unity/UE flags)
     bool useWineDesktop;     // true = wrap target in a Wine virtual desktop (generic windowed mode)
     int deskW, deskH;        // virtual desktop resolution (ignored unless useWineDesktop)
+    wchar_t locale[32];      // locale for app-localized launch, e.g. "ja_JP.UTF-8" (empty = inherit)
 };
 
 static DWORD WINAPI launcherThread(LPVOID param) {
@@ -2498,8 +2520,54 @@ static DWORD WINAPI launcherThread(LPVOID param) {
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof(pi));
 
-    BOOL ok = CreateProcessW(app, cmdLine, NULL, NULL, FALSE, 0, NULL,
+    // 如果指定了locale，构建自定义环境块（设置LANG和LC_ALL）
+    LPVOID envBlock = NULL;
+    if (a->locale[0]) {
+        // 获取当前环境块
+        wchar_t* curEnv = GetEnvironmentStringsW();
+        if (curEnv) {
+            // 先计算新环境块大小
+            int totalSize = 0;
+            wchar_t* p = curEnv;
+            while (*p) {
+                // 跳过LANG和LC_ALL（不区分大小写，匹配到=号前）
+                bool skip = (_wcsnicmp(p, L"LANG=", 5) == 0 || _wcsnicmp(p, L"LC_ALL=", 7) == 0);
+                if (!skip) {
+                    totalSize += (int)wcslen(p) + 1;
+                }
+                p += wcslen(p) + 1;
+            }
+            // 加上LANG和LC_ALL两个变量 + 结束的\0
+            totalSize += (int)wcslen(a->locale) + 6;  // LANG=xxx\0
+            totalSize += (int)wcslen(a->locale) + 8;  // LC_ALL=xxx\0
+            totalSize += 1;  // final null
+
+            envBlock = malloc(totalSize * sizeof(wchar_t));
+            if (envBlock) {
+                wchar_t* dst = (wchar_t*)envBlock;
+                p = curEnv;
+                while (*p) {
+                    bool skip = (_wcsnicmp(p, L"LANG=", 5) == 0 || _wcsnicmp(p, L"LC_ALL=", 7) == 0);
+                    if (!skip) {
+                        wcscpy(dst, p);
+                        dst += wcslen(p) + 1;
+                    }
+                    p += wcslen(p) + 1;
+                }
+                // 添加LANG和LC_ALL
+                swprintf_s(dst, 1024, L"LANG=%ls", a->locale);
+                dst += wcslen(dst) + 1;
+                swprintf_s(dst, 1024, L"LC_ALL=%ls", a->locale);
+                dst += wcslen(dst) + 1;
+                *dst = L'\0';  // 环境块结束
+            }
+            FreeEnvironmentStringsW(curEnv);
+        }
+    }
+
+    BOOL ok = CreateProcessW(app, cmdLine, NULL, NULL, FALSE, 0, envBlock,
                              targetDir[0] ? targetDir : NULL, &si, &pi);
+    if (envBlock) free(envBlock);
     if (ok) {
         CloseHandle(pi.hThread);
         // 内存释放必须在游戏启动之前完成，这样释放的空间
@@ -2571,6 +2639,29 @@ static void launchWithArgs(const wchar_t* args) {
 void onMenuItemRunDX11Click(void) { launchWithArgs(L"-force-d3d11 -force-d3d11-singlethread"); }
 void onMenuItemRunD3D9Click(void) { launchWithArgs(L"-force-d3d9"); }
 void onMenuItemRunNoDebugClick(void) { launchWithArgs(L"-force-opengl"); }
+
+// 辅助函数：以指定区域（locale）启动程序，设置LANG和LC_ALL环境变量
+// 适用于galgame等需要特定编码区域的程序（参考Locale Emulator思路，Wine下通过环境变量实现）
+static void launchWithLocale(const wchar_t* locale) {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    struct LauncherArg* a = (struct LauncherArg*)calloc(1, sizeof(struct LauncherArg));
+    if (!a) return;
+    getFileNodePath(selectedItems[0], a->target);
+    a->useExternal = false;
+    a->boostMode = -1;  // 不进行内存加速
+    wcscpy_s(a->locale, 32, locale);
+    HANDLE h = CreateThread(NULL, 0, launcherThread, a, 0, NULL);
+    if (h) CloseHandle(h); else free(a);
+}
+
+// 转区启动菜单项：日文（日本）- 适用于日文galgame
+void onMenuItemRunLocaleJAClick(void) { launchWithLocale(L"ja_JP.UTF-8"); }
+// 转区启动菜单项：简体中文
+void onMenuItemRunLocaleZHCNClick(void) { launchWithLocale(L"zh_CN.UTF-8"); }
+// 转区启动菜单项：繁体中文
+void onMenuItemRunLocaleZHTWClick(void) { launchWithLocale(L"zh_TW.UTF-8"); }
+// 转区启动菜单项：英文（美国）
+void onMenuItemRunLocaleENClick(void) { launchWithLocale(L"en_US.UTF-8"); }
 
 // ============================================================================
 // 自适应引擎检测与启动（窗口化 / 带分辨率的全屏）。
