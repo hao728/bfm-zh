@@ -1,5 +1,6 @@
 #include "main.h"
 #include <oleidl.h>
+#include <olectl.h>
 #include <wincrypt.h>
 #include <tlhelp32.h>
 
@@ -33,6 +34,254 @@ struct ListItem {
     wchar_t* path;
     FILETIME modifiedTime;
 };
+
+// ============================================================================
+// 缩略图与自定义图标系统
+// 图片文件显示缩小预览图，音乐/视频/压缩包/文档等显示独特图标
+// ============================================================================
+
+#define THUMB_SIZE 48          // 大图标视图缩略图尺寸
+#define THUMB_CACHE_MAX 200    // 最大缓存数量
+
+struct ThumbCacheEntry {
+    wchar_t path[MAX_PATH];
+    FILETIME modifiedTime;
+    int iconIndex;              // 在 g_hThumbImageList 中的索引
+    bool isCustom;              // 是否为自定义图标（非图片缩略图）
+};
+
+static HIMAGELIST g_hThumbImageList = NULL;
+static struct ThumbCacheEntry g_thumbCache[THUMB_CACHE_MAX];
+static int g_thumbCacheCount = 0;
+
+// 判断文件格式
+static bool isImageExt(const wchar_t* ext) {
+    if (!ext) return false;
+    return (wcsicmp(ext, L".jpg")==0 || wcsicmp(ext, L".jpeg")==0 ||
+            wcsicmp(ext, L".png")==0 || wcsicmp(ext, L".bmp")==0 ||
+            wcsicmp(ext, L".gif")==0 || wcsicmp(ext, L".ico")==0 ||
+            wcsicmp(ext, L".webp")==0);
+}
+
+static bool isAudioExt(const wchar_t* ext) {
+    if (!ext) return false;
+    return (wcsicmp(ext, L".mp3")==0 || wcsicmp(ext, L".flac")==0 ||
+            wcsicmp(ext, L".wav")==0 || wcsicmp(ext, L".ogg")==0 ||
+            wcsicmp(ext, L".m4a")==0 || wcsicmp(ext, L".aac")==0 ||
+            wcsicmp(ext, L".wma")==0);
+}
+
+static bool isVideoExt(const wchar_t* ext) {
+    if (!ext) return false;
+    return (wcsicmp(ext, L".mp4")==0 || wcsicmp(ext, L".avi")==0 ||
+            wcsicmp(ext, L".mkv")==0 || wcsicmp(ext, L".wmv")==0 ||
+            wcsicmp(ext, L".mov")==0 || wcsicmp(ext, L".flv")==0 ||
+            wcsicmp(ext, L".webm")==0 || wcsicmp(ext, L".m4v")==0);
+}
+
+static bool isDocumentExt(const wchar_t* ext) {
+    if (!ext) return false;
+    return (wcsicmp(ext, L".pdf")==0 || wcsicmp(ext, L".doc")==0 ||
+            wcsicmp(ext, L".docx")==0 || wcsicmp(ext, L".txt")==0 ||
+            wcsicmp(ext, L".rtf")==0 || wcsicmp(ext, L".md")==0);
+}
+
+static bool isSpreadsheetExt(const wchar_t* ext) {
+    if (!ext) return false;
+    return (wcsicmp(ext, L".xls")==0 || wcsicmp(ext, L".xlsx")==0 ||
+            wcsicmp(ext, L".csv")==0);
+}
+
+static bool isPresentationExt(const wchar_t* ext) {
+    if (!ext) return false;
+    return (wcsicmp(ext, L".ppt")==0 || wcsicmp(ext, L".pptx")==0);
+}
+
+// 用OleLoadPicturePath加载图片并生成缩略图
+static HBITMAP loadImageThumbnail(const wchar_t* path, int thumbW, int thumbH) {
+    IPicture* pPic = NULL;
+    BSTR bstrPath = SysAllocString(path);
+    if (!bstrPath) return NULL;
+    HRESULT hr = OleLoadPicturePath(bstrPath, NULL, 0, 0, &IID_IPicture, (void**)&pPic);
+    SysFreeString(bstrPath);
+    if (FAILED(hr) || !pPic) return NULL;
+
+    OLE_XSIZE_HIMETRIC hmWidth = 0, hmHeight = 0;
+    pPic->lpVtbl->get_Width(pPic, &hmWidth);
+    pPic->lpVtbl->get_Height(pPic, &hmHeight);
+    if (hmWidth == 0 || hmHeight == 0) { pPic->lpVtbl->Release(pPic); return NULL; }
+
+    HDC hdcScreen = GetDC(NULL);
+    int pixW = MulDiv(hmWidth, GetDeviceCaps(hdcScreen, LOGPIXELSX), 2540);
+    int pixH = MulDiv(hmHeight, GetDeviceCaps(hdcScreen, LOGPIXELSY), 2540);
+    ReleaseDC(NULL, hdcScreen);
+    if (pixW <= 0 || pixH <= 0) { pPic->lpVtbl->Release(pPic); return NULL; }
+
+    HDC memDC = CreateCompatibleDC(NULL);
+    HBITMAP hBmp = CreateCompatibleBitmap(GetDC(NULL), thumbW, thumbH);
+    HBITMAP oldBmp = SelectObject(memDC, hBmp);
+
+    // 白色背景（Wine下透明通道可能不支持）
+    FillRect(memDC, &(RECT){0,0,thumbW,thumbH}, (HBRUSH)GetStockObject(WHITE_BRUSH));
+
+    // 保持比例居中绘制
+    int drawW, drawH, drawX, drawY;
+    if (pixW * thumbH > pixH * thumbW) {
+        drawW = thumbW;
+        drawH = thumbW * pixH / pixW;
+        drawX = 0;
+        drawY = (thumbH - drawH) / 2;
+    } else {
+        drawH = thumbH;
+        drawW = thumbH * pixW / pixH;
+        drawY = 0;
+        drawX = (thumbW - drawW) / 2;
+    }
+
+    pPic->lpVtbl->Render(pPic, memDC, drawX, drawY, drawW, drawH,
+                           0, hmHeight, hmWidth, -hmHeight, NULL);
+
+    SelectObject(memDC, oldBmp);
+    DeleteDC(memDC);
+    pPic->lpVtbl->Release(pPic);
+    return hBmp;
+}
+
+// 绘制自定义图标（音乐/视频/压缩包/文档等）
+static HBITMAP drawCustomIcon(const wchar_t* ext, int w, int h) {
+    HDC memDC = CreateCompatibleDC(NULL);
+    HBITMAP hBmp = CreateCompatibleBitmap(GetDC(NULL), w, h);
+    HBITMAP oldBmp = SelectObject(memDC, hBmp);
+
+    // 透明背景
+    FillRect(memDC, &(RECT){0,0,w,h}, (HBRUSH)GetStockObject(WHITE_BRUSH));
+
+    int cx = w/2, cy = h/2;
+    COLORREF bgColor = RGB(200,200,200);
+    const wchar_t* label = L"?";
+
+    if (isAudioExt(ext)) {
+        bgColor = RGB(70,130,180); label = L"♪";  // 蓝色音符
+    } else if (isVideoExt(ext)) {
+        bgColor = RGB(138,43,226); label = L"▶";  // 紫色播放
+    } else if (ext && (wcsicmp(ext, L".zip")==0 || wcsicmp(ext, L".7z")==0 ||
+                        wcsicmp(ext, L".rar")==0 || wcsicmp(ext, L".tar")==0 ||
+                        wcsicmp(ext, L".gz")==0)) {
+        bgColor = RGB(218,165,32); label = L"zip"; // 金黄压缩包
+    } else if (isDocumentExt(ext)) {
+        bgColor = RGB(220,20,60); label = L"DOC";  // 红色文档
+    } else if (isSpreadsheetExt(ext)) {
+        bgColor = RGB(34,139,34); label = L"XLS";  // 绿色表格
+    } else if (isPresentationExt(ext)) {
+        bgColor = RGB(255,140,0); label = L"PPT";  // 橙色幻灯片
+    } else if (wcsicmp(ext, L".exe")==0 || wcsicmp(ext, L".lnk")==0) {
+        bgColor = RGB(0,100,0); label = L"EXE";    // 深绿可执行
+    } else if (wcsicmp(ext, L".dll")==0) {
+        bgColor = RGB(105,105,105); label = L"DLL"; // 灰色库
+    } else if (wcsicmp(ext, L".bat")==0 || wcsicmp(ext, L".cmd")==0) {
+        bgColor = RGB(0,0,0); label = L">_";        // 黑色脚本
+    } else if (wcsicmp(ext, L".reg")==0) {
+        bgColor = RGB(139,0,0); label = L"REG";     // 暗红注册表
+    } else if (wcsicmp(ext, L".txt")==0 || wcsicmp(ext, L".log")==0) {
+        bgColor = RGB(255,255,255); label = L"TXT"; // 白色文本
+    }
+
+    // 绘制圆角矩形背景
+    HBRUSH hBrush = CreateSolidBrush(bgColor);
+    HPEN hPen = CreatePen(PS_SOLID, 1, bgColor);
+    HBRUSH oldBrush = SelectObject(memDC, hBrush);
+    HPEN oldPen = SelectObject(memDC, hPen);
+    RoundRect(memDC, 4, 4, w-4, h-4, 8, 8);
+    SelectObject(memDC, oldBrush);
+    SelectObject(memDC, oldPen);
+    DeleteObject(hBrush);
+    DeleteObject(hPen);
+
+    // 绘制标签文字
+    SetBkMode(memDC, TRANSPARENT);
+    SetTextColor(memDC, RGB(255,255,255));
+    HFONT hFont = CreateFontW(h/3, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                               DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Arial");
+    HFONT oldFont = SelectObject(memDC, hFont);
+    RECT textR = {4, h/3, w-4, h*2/3};
+    DrawTextW(memDC, label, -1, &textR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(memDC, oldFont);
+    DeleteObject(hFont);
+
+    SelectObject(memDC, oldBmp);
+    DeleteDC(memDC);
+    return hBmp;
+}
+
+// 初始化缩略图ImageList
+static void initThumbImageList() {
+    if (g_hThumbImageList) return;
+    g_hThumbImageList = ImageList_Create(THUMB_SIZE, THUMB_SIZE, ILC_COLOR32 | ILC_MASK, 10, 10);
+}
+
+// 查找缩略图缓存
+static int findThumbCache(const wchar_t* path, const FILETIME* mt) {
+    for (int i = 0; i < g_thumbCacheCount; i++) {
+        if (wcscmp(g_thumbCache[i].path, path) == 0 &&
+            g_thumbCache[i].modifiedTime.dwLowDateTime == mt->dwLowDateTime &&
+            g_thumbCache[i].modifiedTime.dwHighDateTime == mt->dwHighDateTime) {
+            return g_thumbCache[i].iconIndex;
+        }
+    }
+    return -1;
+}
+
+// 添加缩略图缓存
+static void addThumbCache(const wchar_t* path, const FILETIME* mt, int iconIndex, bool isCustom) {
+    if (g_thumbCacheCount >= THUMB_CACHE_MAX) {
+        // 缓存满了，清除最旧的一半
+        int half = THUMB_CACHE_MAX / 2;
+        for (int i = half; i < g_thumbCacheCount; i++) {
+            g_thumbCache[i-half] = g_thumbCache[i];
+        }
+        g_thumbCacheCount -= half;
+    }
+    wcscpy_s(g_thumbCache[g_thumbCacheCount].path, MAX_PATH, path);
+    g_thumbCache[g_thumbCacheCount].modifiedTime = *mt;
+    g_thumbCache[g_thumbCacheCount].iconIndex = iconIndex;
+    g_thumbCache[g_thumbCacheCount].isCustom = isCustom;
+    g_thumbCacheCount++;
+}
+
+// 获取文件的缩略图或自定义图标（带缓存），返回ImageList索引
+static int getThumbnailIcon(const wchar_t* path, const wchar_t* ext, const FILETIME* mt) {
+    if (!g_hThumbImageList) initThumbImageList();
+
+    // 查缓存
+    int cached = findThumbCache(path, mt);
+    if (cached >= 0) return cached;
+
+    HBITMAP hBmp = NULL;
+    bool isCustom = false;
+
+    if (isImageExt(ext)) {
+        // 图片文件：生成缩略图
+        hBmp = loadImageThumbnail(path, THUMB_SIZE, THUMB_SIZE);
+    }
+
+    if (!hBmp) {
+        // 非图片或加载失败：用自定义图标
+        hBmp = drawCustomIcon(ext, THUMB_SIZE, THUMB_SIZE);
+        isCustom = true;
+    }
+
+    if (!hBmp) return -1;
+
+    // 加入ImageList（创建单色掩码）
+    HBITMAP hMask = CreateBitmap(THUMB_SIZE, THUMB_SIZE, 1, 1, NULL);
+    int idx = ImageList_Add(g_hThumbImageList, hBmp, hMask);
+    DeleteObject(hMask);
+    DeleteObject(hBmp);
+
+    if (idx >= 0) addThumbCache(path, mt, idx, isCustom);
+    return idx;
+}
 
 // 每面板状态。两个列表视图同时活动（各自触发自己的
 
@@ -1075,21 +1324,42 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         DeleteObject(bgBrush);
                     }
 
-                    // 绘制图标（居中上方，32x32）
-                    HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_NORMAL);
-                    if (himl) {
-                        int iconW = 32, iconH = 32;
-                        int iconX = rc.left + (rc.right - rc.left - iconW) / 2;
-                        int iconY = rc.top + 6;
-                        ImageList_Draw(himl, item->icon, hdc, iconX, iconY, ILD_TRANSPARENT);
+                    // 绘制图标（居中上方）
+                    // 图片文件显示缩略图，其他常见格式显示自定义图标，文件夹/exe用系统图标
+                    bool useThumb = false;
+                    int thumbIdx = -1;
+                    if (item->node->type == TYPE_FILE && item->path) {
+                        wchar_t* ext = wcsrchr(item->node->name, L'.');
+                        bool isExeOrLnk = ext && (wcsicmp(ext, L".exe")==0 || wcsicmp(ext, L".lnk")==0);
+                        if (!isExeOrLnk && ext) {
+                            thumbIdx = getThumbnailIcon(item->path, ext, &item->modifiedTime);
+                            if (thumbIdx >= 0) useThumb = true;
+                        }
                     }
 
-                    // 绘制多行文件名（图标下方，居中，最多2行）
+                    if (useThumb && g_hThumbImageList) {
+                        // 缩略图/自定义图标：48x48
+                        int iconW = THUMB_SIZE, iconH = THUMB_SIZE;
+                        int iconX = rc.left + (rc.right - rc.left - iconW) / 2;
+                        int iconY = rc.top + 4;
+                        ImageList_Draw(g_hThumbImageList, thumbIdx, hdc, iconX, iconY, ILD_TRANSPARENT);
+                    } else {
+                        // 系统图标：32x32（文件夹/exe/lnk）
+                        HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_NORMAL);
+                        if (himl) {
+                            int iconW = 32, iconH = 32;
+                            int iconX = rc.left + (rc.right - rc.left - iconW) / 2;
+                            int iconY = rc.top + 10;
+                            ImageList_Draw(himl, item->icon, hdc, iconX, iconY, ILD_TRANSPARENT);
+                        }
+                    }
+
+                    // 绘制多行文件名（图标下方，居中，自动换行，最多3行）
                     SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
                     SetBkMode(hdc, TRANSPARENT);
                     HGDIOBJ oldFont = SelectObject(hdc, getUIFont());
-                    RECT textR = {rc.left + 4, rc.top + 44, rc.right - 4, rc.bottom - 4};
-                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK | DT_END_ELLIPSIS);
+                    RECT textR = {rc.left + 6, rc.top + 56, rc.right - 6, rc.bottom - 4};
+                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK);
                     SelectObject(hdc, oldFont);
                     return CDRF_SKIPDEFAULT;
                 }
@@ -1608,19 +1878,19 @@ static void createLVColumns(HWND hwndList) {
 
     // 加上“已用/总 GB”文本（不截断）。名称列是灵活的。
 
-    column.cx = 170;
+    column.cx = 200;
     column.pszText = lc_str.name;
     ListView_InsertColumn(hwndList, COLUMN_NAME_IDX, &column);
 
-    column.cx = 80;
+    column.cx = 100;
     column.pszText = lc_str.type;
     ListView_InsertColumn(hwndList, COLUMN_TYPE_IDX, &column);
 
-    column.cx = 150;
+    column.cx = 160;
     column.pszText = lc_str.size;
     ListView_InsertColumn(hwndList, COLUMN_SIZE_IDX, &column);
 
-    column.cx = 100;
+    column.cx = 170;
     column.pszText = lc_str.date;
     ListView_InsertColumn(hwndList, COLUMN_DATE_IDX, &column);
 }
