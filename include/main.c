@@ -30,6 +30,7 @@ static struct TabState tabStates[MAX_TABS];
 static int tabCount = 0;
 static int activeTab = 0;
 
+/** Saves the current directory in the active tab state. */
 static void tabsSaveCurrent(void) {
     if (activeTab < 0 || activeTab >= tabCount) return;
     if (currPathFileNode) {
@@ -37,6 +38,7 @@ static void tabsSaveCurrent(void) {
     }
 }
 
+/** Activates a tab and restores its saved directory. */
 static void tabsRestore(int idx) {
     if (idx < 0 || idx >= tabCount) return;
     activeTab = idx;
@@ -49,11 +51,13 @@ static void tabsRestore(int idx) {
 
 // 创建第二个标签页后再次显示它。
 
+/** Shows the tab bar only when multiple tabs are open. */
 static void tabsUpdateVisibility(void) {
     if (!hwndTabs) return;
     ShowWindow(hwndTabs, tabCount > 1 ? SW_SHOW : SW_HIDE);
 }
 
+/** Adds a tab for the supplied path and makes it active. */
 static void tabsAdd(const wchar_t* path) {
     if (tabCount >= MAX_TABS) return;
     if (path) wcscpy_s(tabStates[tabCount].path, MAX_PATH, path);
@@ -76,6 +80,7 @@ static void tabsAdd(const wchar_t* path) {
     tabsUpdateVisibility();
 }
 
+/** Closes a tab while preserving at least one open tab. */
 static void tabsClose(int idx) {
     if (idx < 0 || idx >= tabCount || tabCount <= 1) return;
     tabsSaveCurrent();
@@ -94,6 +99,7 @@ static void tabsClose(int idx) {
 
 // 刷新其标签，使标签栏反映用户所在位置。
 
+/** Updates the active tab's saved path and displayed label. */
 static void tabsSyncCurrent(const wchar_t* path) {
     if (!hwndTabs || activeTab < 0 || activeTab >= tabCount) return;
     if (path) wcscpy_s(tabStates[activeTab].path, MAX_PATH, path);
@@ -119,6 +125,7 @@ static void tabsSyncCurrent(const wchar_t* path) {
 
 // 公共标签 API，供键盘快捷键（Ctrl+T / Ctrl+W）和菜单使用。
 
+/** Opens a new tab at the directory currently being viewed. */
 void tabNew(void) {
     if (!hwndTabs || tabCount >= MAX_TABS) return;
     tabsSaveCurrent();
@@ -129,6 +136,7 @@ void tabNew(void) {
     resizeControls();
 }
 
+/** Closes the active tab when another tab can remain open. */
 void tabCloseActive(void) {
     if (!hwndTabs || tabCount <= 1) return;
     int sel = TabCtrl_GetCurSel(hwndTabs);
@@ -145,6 +153,7 @@ static HBRUSH paneLabelActiveBrush = NULL;
 static HBRUSH paneLabelInactiveBrush = NULL;
 static bool paneLabelInactiveDark = false;
 
+/** Invalidates the stored pane frames so Windows repaints them. */
 void cvInvalidatePaneFrames(void) {
     for (int i = 0; i < 2; i++) InvalidateRect(hwndMain, &paneCell[i], TRUE);
 }
@@ -173,12 +182,14 @@ void cvInvalidatePaneFrames(void) {
 
 enum { SB_ARROW_UP, SB_ARROW_DOWN, SB_ARROW_LEFT, SB_ARROW_RIGHT };
 
+/** Fills a rectangle with a solid color. */
 static void fillRect(HDC hdc, const RECT* rc, COLORREF color) {
     HBRUSH brush = CreateSolidBrush(color);
     FillRect(hdc, (RECT*)rc, brush);
     DeleteObject(brush);
 }
 
+/** Draws a directional arrow inside a scrollbar button. */
 static void drawScrollArrow(HDC hdc, const RECT* rc, int dir, COLORREF color) {
     int cx = (rc->left + rc->right) / 2;
     int cy = (rc->top + rc->bottom) / 2;
@@ -209,6 +220,7 @@ static void drawScrollArrow(HDC hdc, const RECT* rc, int dir, COLORREF color) {
 
 // 填充水平滚动条和垂直滚动条交汇处的角块。
 
+/** Paints one non-client scrollbar and returns its window-relative bounds. */
 static void paintOneScrollbar(HWND hwnd, HDC hdc, POINT org, LONG objid, bool vertical, RECT* out) {
     SCROLLBARINFO sbi = {0};
     sbi.cbSize = sizeof(SCROLLBARINFO);
@@ -269,6 +281,7 @@ static void paintOneScrollbar(HWND hwnd, HDC hdc, POINT org, LONG objid, bool ve
     *out = rc;
 }
 
+/** Repaints a window's non-client scrollbars for the dark theme. */
 void themePaintScrollbars(HWND hwnd) {
     if (!isDarkMode()) return;
 
@@ -315,6 +328,7 @@ void themePaintScrollbars(HWND hwnd) {
 
 // 在原始窗口过程之前调用。如果消息已完全处理则返回 true。
 
+/** Handles scrollbar messages that must be intercepted before dispatch. */
 bool themeScrollbarsHookBefore(HWND hwnd, UINT msg, WPARAM wParam) {
     if (msg == WM_TIMER && wParam == THEME_SB_TIMER_ID) {
         themePaintScrollbars(hwnd);
@@ -328,6 +342,7 @@ bool themeScrollbarsHookBefore(HWND hwnd, UINT msg, WPARAM wParam) {
 
 // 在原始窗口过程之后调用（模态跟踪循环在那里返回）。
 
+/** Handles scrollbar repaint work after a message is dispatched. */
 void themeScrollbarsHookAfter(HWND hwnd, UINT msg) {
     if (msg == WM_NCLBUTTONDOWN || msg == WM_NCLBUTTONDBLCLK ||
         msg == WM_NCLBUTTONUP || msg == WM_CAPTURECHANGED) {
@@ -344,6 +359,7 @@ void themeScrollbarsHookAfter(HWND hwnd, UINT msg) {
 
 // 滚动条。保留白名单机制，避免高频查询消息触发重绘。
 
+/** Reports whether a message requires repainting themed scrollbars. */
 bool themeScrollbarsNeedRepaint(UINT msg) {
     switch (msg) {
         case WM_NCPAINT:
@@ -391,6 +407,7 @@ bool themeScrollbarsNeedRepaint(UINT msg) {
 
 //       这是中文是否会渲染而非方块的真正测试。
 
+/** Tests whether an installed font face is usable and optionally supports CJK. */
 static bool fontFaceUsable(const wchar_t* face, bool requireCJK) {
     HFONT hf = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -421,6 +438,7 @@ static bool fontFaceUsable(const wchar_t* face, bool requireCJK) {
 // （Droid Sans Fallback、思源黑体等），无需我们猜测其名称。
 
 static wchar_t g_enumCJKFace[LF_FACESIZE] = {0};
+/** Records the first enumerated TrueType font capable of rendering CJK text. */
 static INT CALLBACK enumCJKFontProc(const LOGFONTW* lf, const TEXTMETRICW* tm,
                                     DWORD fontType, LPARAM lParam) {
     (void)tm; (void)lParam;
@@ -442,6 +460,7 @@ static INT CALLBACK enumCJKFontProc(const LOGFONTW* lf, const TEXTMETRICW* tm,
 // 高密度手机面板。
 
 static HFONT uiFont = NULL;
+/** Returns the shared DPI-aware UI font with CJK support. */
 HFONT getUIFont(void) {
     if (!uiFont) {
         HDC screen = GetDC(NULL);
@@ -542,6 +561,7 @@ static HWND hBoostTip = NULL;
 static void hideBoostTip(void);
 
 // Boost tip 子类化窗口过程：支持点击关闭
+/** Handles click-to-dismiss and timeout behavior for the memory-boost tip. */
 static LRESULT CALLBACK boostTipSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
     if (msg == WM_LBUTTONDOWN) {
         hideBoostTip();
@@ -554,6 +574,7 @@ static LRESULT CALLBACK boostTipSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
+/** Displays the temporary memory-boost status tip. */
 static void showBoostTip(const wchar_t* text) {
     hideBoostTip();
     RECT rc;
@@ -575,6 +596,7 @@ static void showBoostTip(const wchar_t* text) {
     }
 }
 
+/** Destroys the memory-boost status tip if it is visible. */
 static void hideBoostTip(void) {
     if (hBoostTip) {
         DestroyWindow(hBoostTip);
@@ -582,11 +604,13 @@ static void hideBoostTip(void) {
     }
 }
 
+/** Converts a window's screen rectangle to its parent's client coordinates. */
 void GetWindowRectInParent(HWND hwnd, RECT* rect) {
     GetWindowRect(hwnd, rect);
     MapWindowPoints(HWND_DESKTOP, GetParent(hwnd), (LPPOINT)rect, 2);
 }
 
+/** Processes messages for the About dialog. */
 INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_NOTIFY: {
@@ -638,6 +662,7 @@ extern void onMenuItemUnloadISOImageClick(void);
 
 static void createMainMenu();
 
+/** Dispatches commands selected from the main menu. */
 void mainMenuCommand(WPARAM wParam) {
     switch (LOWORD(wParam)) {
         case ID_EDIT_CUT:
@@ -739,6 +764,7 @@ static wchar_t previewSizeStr[32] = {0};
 static wchar_t previewDateStr[64] = {0};
 static wchar_t previewText[2048] = {0};  // first lines of text files
 
+/** Reports whether a path has a supported image extension. */
 static bool isImageExt(const wchar_t* path) {
     const wchar_t* dot = wcsrchr(path, L'.');
     if (!dot) return false;
@@ -749,6 +775,7 @@ static bool isImageExt(const wchar_t* path) {
            !_wcsicmp(ext, L"tif") || !_wcsicmp(ext, L"tiff");
 }
 
+/** Reports whether a path has a supported text extension. */
 static bool isTextExt(const wchar_t* path) {
     const wchar_t* dot = wcsrchr(path, L'.');
     if (!dot) return false;
@@ -765,6 +792,7 @@ static bool isTextExt(const wchar_t* path) {
            !_wcsicmp(ext, L"html") || !_wcsicmp(ext, L"css");
 }
 
+/** Loads a bounded text preview from a file, detecting UTF-8 when possible. */
 static void loadPreviewText(const wchar_t* path) {
     previewText[0] = L'\0';
     HANDLE hFile = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
@@ -803,6 +831,7 @@ static void loadPreviewText(const wchar_t* path) {
     }
 }
 
+/** Refreshes preview content and metadata for the current selection. */
 void previewUpdate(void) {
     if (!previewOn || !hwndPreview) return;
     // 释放先前的资源。
@@ -865,6 +894,7 @@ void previewUpdate(void) {
 
 // 点击预览面板缩略图打开的全尺寸图像查看器。
 
+/** Processes messages for the full-size image preview window. */
 static LRESULT CALLBACK ZoomWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_PAINT: {
@@ -916,6 +946,7 @@ static LRESULT CALLBACK ZoomWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+/** Opens a window that displays the current preview image at full size. */
 static void openZoomWindow(void) {
     if (!previewPic) return;
     if (hwndZoom) { SetForegroundWindow(hwndZoom); return; }
@@ -949,6 +980,7 @@ static void openZoomWindow(void) {
     SetFocus(hwndZoom);
 }
 
+/** Processes painting and interaction for the preview pane. */
 static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_LBUTTONDOWN:
@@ -1092,6 +1124,7 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+/** Resizes and positions the main window's child controls. */
 void resizeControls() {
     RECT rect;
     GetClientRect(hwndMain, &rect);
@@ -1174,6 +1207,7 @@ void resizeControls() {
     }
 }
 
+/** Processes messages for the application's main window. */
 LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_USER_EXTRACT_DONE:
@@ -1347,6 +1381,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+/** Navigates to a file-system node and records it in navigation history. */
 void navigateToFileNode(struct FileNode* node) {
     if (node) {
         wchar_t p[MAX_PATH]={0}; getFileNodePath(node,p);
@@ -1360,6 +1395,7 @@ void navigateToFileNode(struct FileNode* node) {
     }
 }
 
+/** Navigates to a path and records it in navigation history. */
 void navigateToPath(wchar_t* path) {
     if (path) {
         navPushHistory(path); recentAdd(path);
@@ -1371,6 +1407,7 @@ void navigateToPath(wchar_t* path) {
     }
 }
 
+/** Navigates from the current node to its parent directory. */
 void navigateUp() {
     if (currPathFileNode->parent) {
         clearAddrButtons();
@@ -1383,6 +1420,7 @@ void navigateUp() {
     }
 }
 
+/** Rebuilds and redraws the contents of the current directory. */
 void navigateRefresh() {
     if (currPathFileNode) {
         buildChildNodes(currPathFileNode, false);
@@ -1392,6 +1430,7 @@ void navigateRefresh() {
     }
 }
 
+/** Opens a file or navigates into a directory node. */
 void openFileNode(struct FileNode* node) {
     if (node->type == TYPE_FILE) {
         wchar_t path[MAX_PATH] = {0};
@@ -1403,6 +1442,7 @@ void openFileNode(struct FileNode* node) {
     else navigateToFileNode(node);
 }
 
+/** Builds and installs the application's main menu. */
 static void createMainMenu() {
     HMENU hmOld = GetMenu(hwndMain);
 
