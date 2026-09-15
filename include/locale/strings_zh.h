@@ -168,6 +168,14 @@ static inline void loadStrings_zh() {
     lc_str.new_txt_name = L"新建文本文档.txt";
     lc_str.diff_right_label = L"右侧";
     lc_str.diff_left_label = L"左侧";
+    lc_str.locale_run = L"以指定区域运行";
+    lc_str.locale_ja = L"日文（日本）";
+    lc_str.locale_zhcn = L"简体中文";
+    lc_str.locale_zhtw = L"繁体中文";
+    lc_str.locale_en = L"英文（美国）";
+    lc_str.manage_assoc = L"管理文件关联...";
+    lc_str.calc_sha1 = L"计算SHA1";
+    lc_str.font_size = L"字体大小";
 }
 
 #endif

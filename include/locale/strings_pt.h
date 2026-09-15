@@ -170,6 +170,14 @@ static inline void loadStrings_pt() {
     lc_str.new_txt_name = L"Novo Documento de Texto.txt";
     lc_str.diff_right_label = L"Direita";
     lc_str.diff_left_label = L"Esquerda";
+    lc_str.locale_run = L"Executar com localidade";
+    lc_str.locale_ja = L"Japones (Japao)";
+    lc_str.locale_zhcn = L"Chines simplificado";
+    lc_str.locale_zhtw = L"Chines tradicional";
+    lc_str.locale_en = L"Ingles (EUA)";
+    lc_str.manage_assoc = L"Gerenciar associacoes...";
+    lc_str.calc_sha1 = L"Calcular SHA1";
+    lc_str.font_size = L"Tamanho da fonte";
 }
 
 #endif

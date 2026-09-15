@@ -170,6 +170,14 @@ static inline void loadStrings_ru() {
     lc_str.new_txt_name = L"Новый текстовый документ.txt";
     lc_str.diff_right_label = L"Правый";
     lc_str.diff_left_label = L"Левый";
+    lc_str.locale_run = L"Запуск с локалью";
+    lc_str.locale_ja = L"Японский (Япония)";
+    lc_str.locale_zhcn = L"Упрощенный китайский";
+    lc_str.locale_zhtw = L"Традиционный китайский";
+    lc_str.locale_en = L"Английский (США)";
+    lc_str.manage_assoc = L"Управление ассоциациями...";
+    lc_str.calc_sha1 = L"Вычислить SHA1";
+    lc_str.font_size = L"Размер шрифта";
 }
 
 #endif
