@@ -4442,7 +4442,7 @@ static void showExtractProgress(const wchar_t* fileName) {
     }
 }
 
-static void hideExtractProgress() {
+void hideExtractProgress() {
     if (g_hExtractProgressWnd) {
         KillTimer(g_hExtractProgressWnd, 1);
         DestroyWindow(g_hExtractProgressWnd);
