@@ -27,6 +27,8 @@ bool cvActivatePaneByLabel(HWND h);
 void cvFitColumns(HWND list, int totalWidth);
 int cvActiveIdx();
 bool cvSplitOn();
+void cvToggleMemoryDisplay(void);
+bool cvMemoryVisible(void);
 
 void onMenuItemUpClick();
 void onMenuItemOpenClick();
