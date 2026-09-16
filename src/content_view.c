@@ -438,7 +438,7 @@ static HBITMAP drawCustomIcon(const wchar_t* ext, int w, int h) {
         }
         DeleteObject(hb2);
     }
-    else if (isDocumentExt(ext) || ext && (wcsicmp(ext,L".txt")==0||wcsicmp(ext,L".log")==0||wcsicmp(ext,L".md")==0)) {
+    else if (isDocumentExt(ext) || (ext && (wcsicmp(ext,L".txt")==0||wcsicmp(ext,L".log")==0||wcsicmp(ext,L".md")==0))) {
         // 文本：白色纸张 + 灰色线条
         HBRUSH hb = CreateSolidBrush(RGB(255,255,255));
         HPEN hp = CreatePen(PS_SOLID, 1, RGB(180,180,180));
@@ -4480,9 +4480,6 @@ static LRESULT CALLBACK extractProgressWndProc(HWND hwnd, UINT msg, WPARAM wPara
             HBRUSH hProg = CreateSolidBrush(RGB(0,120,215));
             FillRect(hdc, &progR, hProg);
             DeleteObject(hProg);
-            // 提示文字
-            RECT tipR = {10, 100, rc.right - 10, 125};
-            DrawTextW(hdc, L"请稍候，解压完成后窗口自动关闭", -1, &tipR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
             SelectObject(hdc, oldFont);
             DeleteObject(hFont);
             DeleteObject(hFont2);
