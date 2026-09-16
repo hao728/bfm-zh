@@ -1,0 +1,35 @@
+name: clean-actions
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete all old runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export CURRENT_RUN=$GITHUB_RUN_ID
+          echo "当前运行（保留）: $CURRENT_RUN"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?per_page=100" --paginate \
+            --jq ".workflow_runs[] | select(.id != ($ENV.CURRENT_RUN | tonumber)) | .id" \
+            | while read -r rid; do
+                echo "删除 run $rid"
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$rid" >/dev/null 2>&1 || true
+              done
+          echo "=== 删除后剩余运行数 ==="
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?per_page=1" --jq '.total_count'
+
+      - name: Remove self workflow
+        run: |
+          git config user.name "hao728"
+          git config user.email "hao728@users.noreply.github.com"
+          git rm -f .github/workflows/clean-actions.yml
+          git commit -qm "删除 Actions 清理工作流"
+          git push origin main
+          echo "清理工作流已移除"
