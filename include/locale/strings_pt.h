@@ -141,6 +141,11 @@ static inline void loadStrings_pt() {
     lc_str.test_archive = L"Testar integridade";
     lc_str.compress_zip = L"Compactar para ZIP";
     lc_str.compress_7z = L"Compactar para 7Z";
+    lc_str.sort_by = L"Ordenar por";
+    lc_str.sort_name = L"Nome";
+    lc_str.sort_type = L"Tipo";
+    lc_str.sort_size = L"Tamanho";
+    lc_str.sort_date = L"Data";
     lc_str.shared_storage = L"compartilhado";
     lc_str.diff_files = L"Comparar arquivos";
     lc_str.launcher_boost_aggressive = L"Boost agressivo";
