@@ -30,6 +30,9 @@ bool cvSplitOn();
 void cvToggleMemoryDisplay(void);
 bool cvMemoryVisible(void);
 bool showConfirmDialog(HWND parent, const wchar_t* title, const wchar_t* msg);
+HBITMAP cvGetFileIconBitmap(const wchar_t* path, int w, int h);
+void cvSetSort(int colIdx);  // 查看菜单排序入口：0=名称 1=类型 2=大小 3=日期
+void cvEnsureLocaleFallback(void);  // 启动时回退转区残留的Locale
 
 void onMenuItemUpClick();
 void onMenuItemOpenClick();
