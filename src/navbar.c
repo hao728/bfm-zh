@@ -152,8 +152,8 @@ static void updateSearchEdit() {
     SendMessage(hwndSearchEdit, WM_GETTEXT, 64, (LPARAM)keyword);
     searchEditEmpty = wcslen(keyword) == 0;
     if (searchEditEmpty) {
-        swprintf_s(keyword, 64, L"%ls %ls", lc_str.search, currPathFileNode->name);
-        SendMessage(hwndSearchEdit, WM_SETTEXT, 0, (LPARAM)keyword);
+        // 标准占位符：仅"搜索"，不拼接目录名（避免长目录名截断显示为乱码）
+        SendMessage(hwndSearchEdit, WM_SETTEXT, 0, (LPARAM)lc_str.search);
     }
 }
 
@@ -468,6 +468,11 @@ void createNavbar() {
     hwndSearchEdit = CreateWindowEx(0, WC_EDIT, NULL, WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL | ES_LEFT, 
                                     0, 0, 0, 0, hwndSearchEditWrapper, (HMENU)NULL, globalHInstance, NULL);
     SendMessage(hwndSearchEdit, WM_SETFONT, (WPARAM)getUIFont(), 0);
+    // 修复Wine下搜索框文字偏下/被边框裁剪：设置编辑框格式化矩形，上下内边距为0
+    {
+        RECT rc = {0, 0, 0, 0};
+        SendMessage(hwndSearchEdit, EM_SETRECTNP, 0, (LPARAM)&rc);
+    }
     SearchEditOrigWndProc = (WNDPROC)SetWindowLongPtr(hwndSearchEdit, GWLP_WNDPROC, (LONG_PTR)SearchEditWndProc);           
 
     setEditMode(false);

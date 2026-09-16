@@ -438,6 +438,123 @@ static HBITMAP drawCustomIcon(const wchar_t* ext, int w, int h) {
         }
         DeleteObject(hb2);
     }
+    else if (ext && wcsicmp(ext,L".apk")==0) {
+        // APK：绿色安卓机器人
+        HBRUSH hb = CreateSolidBrush(RGB(60,160,80));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(40,120,60));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy+ih*0.25, ix+iw, iy+ih*0.9, iw/5, ih/5);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 头部
+        HBRUSH hb2 = CreateSolidBrush(RGB(60,160,80));
+        SelectObject(memDC, hb2);
+        Ellipse(memDC, ix+iw*0.2, iy+ih*0.05, ix+iw*0.8, iy+ih*0.45);
+        DeleteObject(hb2);
+        // 眼睛
+        HBRUSH hb3 = CreateSolidBrush(RGB(255,255,255));
+        SelectObject(memDC, hb3);
+        Ellipse(memDC, ix+iw*0.32, iy+ih*0.18, ix+iw*0.42, iy+ih*0.28);
+        Ellipse(memDC, ix+iw*0.58, iy+ih*0.18, ix+iw*0.68, iy+ih*0.28);
+        DeleteObject(hb3);
+    }
+    else if (ext && (wcsicmp(ext,L".ttf")==0||wcsicmp(ext,L".otf")==0||wcsicmp(ext,L".woff")==0)) {
+        // 字体：蓝色背景 + 白色大A
+        HBRUSH hb = CreateSolidBrush(RGB(40,100,180));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(30,70,140));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/6, ih/6);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        SetBkMode(memDC, TRANSPARENT); SetTextColor(memDC, RGB(255,255,255));
+        HFONT hf = CreateFontW(ih*0.65, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY, DEFAULT_PITCH|FF_SWISS, L"Georgia");
+        HFONT of = SelectObject(memDC, hf);
+        RECT tr = {ix, iy, ix+iw, iy+ih};
+        DrawTextW(memDC, L"A", -1, &tr, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SelectObject(memDC, of); DeleteObject(hf);
+    }
+    else if (ext && (wcsicmp(ext,L".html")==0||wcsicmp(ext,L".htm")==0||wcsicmp(ext,L".css")==0)) {
+        // 网页：橙色背景 + 白色 </>
+        HBRUSH hb = CreateSolidBrush(RGB(230,120,30));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(180,90,20));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/6, ih/6);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        SetBkMode(memDC, TRANSPARENT); SetTextColor(memDC, RGB(255,255,255));
+        HFONT hf = CreateFontW(ih*0.45, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY, DEFAULT_PITCH|FF_SWISS, L"Consolas");
+        HFONT of = SelectObject(memDC, hf);
+        RECT tr = {ix, iy, ix+iw, iy+ih};
+        DrawTextW(memDC, L"</>", -1, &tr, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SelectObject(memDC, of); DeleteObject(hf);
+    }
+    else if (ext && (wcsicmp(ext,L".db")==0||wcsicmp(ext,L".sqlite")==0||wcsicmp(ext,L".mdb")==0||wcsicmp(ext,L".dbf")==0)) {
+        // 数据库：深蓝圆柱
+        HBRUSH hb = CreateSolidBrush(RGB(30,60,120));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(20,40,90));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        Ellipse(memDC, ix+iw*0.15, iy+ih*0.1, ix+iw*0.85, iy+ih*0.35);
+        Rectangle(memDC, ix+iw*0.15, iy+ih*0.22, ix+iw*0.85, iy+ih*0.75);
+        Ellipse(memDC, ix+iw*0.15, iy+ih*0.6, ix+iw*0.85, iy+ih*0.85);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 横线
+        HPEN hp2 = CreatePen(PS_SOLID, 1, RGB(100,150,220));
+        HPEN op2 = SelectObject(memDC, hp2);
+        MoveToEx(memDC, ix+iw*0.15, iy+ih*0.4, NULL); LineTo(memDC, ix+iw*0.85, iy+ih*0.4);
+        MoveToEx(memDC, ix+iw*0.15, iy+ih*0.55, NULL); LineTo(memDC, ix+iw*0.85, iy+ih*0.55);
+        SelectObject(memDC, op2); DeleteObject(hp2);
+    }
+    else if (ext && (wcsicmp(ext,L".msi")==0||wcsicmp(ext,L".cab")==0||wcsicmp(ext,L".exe")==0)) {
+        // 安装包/程序：紫色盒子（exe已有系统图标优先，这里兜底）
+        DRAW_DOC(120,60,180, L"APP");
+    }
+    else if (ext && (wcsicmp(ext,L".sys")==0||wcsicmp(ext,L".drv")==0||wcsicmp(ext,L".cpl")==0)) {
+        // 系统文件：灰色盾牌
+        HBRUSH hb = CreateSolidBrush(RGB(90,90,100));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(60,60,70));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        // 盾牌形状
+        POINT shield[] = {{ix+iw*0.5,iy},{ix+iw*0.9,iy+ih*0.2},{ix+iw*0.9,iy+ih*0.55},
+                          {ix+iw*0.5,iy+ih*0.95},{ix+iw*0.1,iy+ih*0.55},{ix+iw*0.1,iy+ih*0.2}};
+        Polygon(memDC, shield, 6);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 对勾
+        HPEN hp2 = CreatePen(PS_SOLID, 3, RGB(255,255,255));
+        HPEN op2 = SelectObject(memDC, hp2);
+        MoveToEx(memDC, ix+iw*0.3, iy+ih*0.5, NULL);
+        LineTo(memDC, ix+iw*0.45, iy+ih*0.65);
+        LineTo(memDC, ix+iw*0.72, iy+ih*0.35);
+        SelectObject(memDC, op2); DeleteObject(hp2);
+    }
+    else if (ext && wcsicmp(ext,L".torrent")==0) {
+        // 种子：绿色向上箭头
+        HBRUSH hb = CreateSolidBrush(RGB(40,140,60));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(30,100,45));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/6, ih/6);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        HBRUSH hb2 = CreateSolidBrush(RGB(255,255,255));
+        SelectObject(memDC, hb2);
+        POINT arrow[] = {{ix+iw*0.5,iy+ih*0.15},{ix+iw*0.8,iy+ih*0.5},{ix+iw*0.62,iy+ih*0.5},
+                         {ix+iw*0.62,iy+ih*0.85},{ix+iw*0.38,iy+ih*0.85},{ix+iw*0.38,iy+ih*0.5},{ix+iw*0.2,iy+ih*0.5}};
+        Polygon(memDC, arrow, 7);
+        DeleteObject(hb2);
+    }
+    else if (ext && (wcsicmp(ext,L".dat")==0||wcsicmp(ext,L".bin")==0||wcsicmp(ext,L".raw")==0)) {
+        // 数据文件：橙色文档 + D
+        DRAW_DOC(200,120,40, L"DAT");
+    }
+    else if (ext && (wcsicmp(ext,L".part")==0||wcsicmp(ext,L".tmp")==0||wcsicmp(ext,L".bak")==0||wcsicmp(ext,L".old")==0)) {
+        // 临时/备份：灰色文档
+        DRAW_DOC(160,160,160, L"TMP");
+    }
     else if (isDocumentExt(ext) || (ext && (wcsicmp(ext,L".txt")==0||wcsicmp(ext,L".log")==0||wcsicmp(ext,L".md")==0))) {
         // 文本：白色纸张 + 灰色线条
         HBRUSH hb = CreateSolidBrush(RGB(255,255,255));
@@ -605,6 +722,41 @@ HICON getExeIconEnhanced(const wchar_t* exePath) {
     return hIcon;
 }
 
+// 预览窗格用：获取文件图标位图（图片缩略图/自定义图标/exe图标），与主视图图标识别联动
+HBITMAP cvGetFileIconBitmap(const wchar_t* path, int w, int h) {
+    if (!path || !path[0]) return NULL;
+    wchar_t* ext = wcsrchr(path, L'.');
+    bool isExe = ext && (wcsicmp(ext, L".exe")==0 || wcsicmp(ext, L".lnk")==0);
+    // exe：增强提取图标，转位图
+    if (isExe) {
+        HICON hIcon = getExeIconEnhanced(path);
+        if (hIcon) {
+            HDC hdcScreen = GetDC(NULL);
+            HDC hdcMem = CreateCompatibleDC(hdcScreen);
+            HBITMAP hBmp = CreateCompatibleBitmap(hdcScreen, w, h);
+            HBITMAP oldBmp = SelectObject(hdcMem, hBmp);
+            RECT rc = {0, 0, w, h};
+            FillRect(hdcMem, &rc, (HBRUSH)(COLOR_WINDOW+1));
+            DrawIconEx(hdcMem, 0, 0, hIcon, w, h, 0, NULL, DI_NORMAL);
+            SelectObject(hdcMem, oldBmp);
+            DeleteDC(hdcMem);
+            ReleaseDC(NULL, hdcScreen);
+            return hBmp;
+        }
+    }
+    // 图片：缩略图
+    if (ext && isImageExt(ext)) {
+        HBITMAP hBmp = loadImageThumbnail(path, w, h);
+        if (hBmp) return hBmp;
+    }
+    // 其他格式：自定义图标
+    if (ext) {
+        HBITMAP hBmp = getCachedCustomIcon(ext, w, h);
+        if (hBmp) return hBmp;
+    }
+    return NULL;
+}
+
 // 每面板状态。两个列表视图同时活动（各自触发自己的
 
 // 重绘时的 LVN_GETDISPINFO），因此后备数据必须能按 HWND 解析。
@@ -649,6 +801,10 @@ static void onMenuItemCompress7zClick();
 static bool isArchiveExt(const wchar_t* path);
 static void startFileDrag(HWND hwnd);
 static void updateSelectedItems(void);
+static void moveSelectedFilesTo(const wchar_t* dstDir);
+static void copySelectedFilesTo(const wchar_t* dstDir);
+static void createShortcutsIn(const wchar_t* dstDir);
+static void sendFilesToExternalWindow(HWND target);
 static void onMenuItemNewTxtClick();
 static void onMenuItemRefreshClick();
 static void onMenuItemSortNameClick();
@@ -782,6 +938,10 @@ static WNDPROC OrigWndProc;
 
 static POINT dragStartPt = {0};
 static bool dragPending = false;
+// 右键拖拽状态：右键按住文件拖动，松开后弹出操作菜单
+static POINT rightDragStartPt = {0};
+static bool rightDragPending = false;
+static bool rightDragActive = false;
 static int hoveredItem = -1;
 static IDropTarget* g_dropTarget = NULL;
 static HWND g_dropHwnd = NULL;
@@ -1136,7 +1296,6 @@ LRESULT CALLBACK ContentViewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 }
             }
             // 拖动检测
-
             if (dragPending && (wParam & MK_LBUTTON)) {
                 int dx = abs((short)LOWORD(lParam) - dragStartPt.x);
                 int dy = abs((short)HIWORD(lParam) - dragStartPt.y);
@@ -1147,11 +1306,85 @@ LRESULT CALLBACK ContentViewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             } else if (!(wParam & MK_LBUTTON)) {
                 dragPending = false;
             }
+            // 右键拖拽检测
+            if (rightDragPending && (wParam & MK_RBUTTON)) {
+                int dx = abs((short)LOWORD(lParam) - rightDragStartPt.x);
+                int dy = abs((short)HIWORD(lParam) - rightDragStartPt.y);
+                if (dx > GetSystemMetrics(SM_CXDRAG) || dy > GetSystemMetrics(SM_CYDRAG)) {
+                    rightDragPending = false;
+                    rightDragActive = true;
+                    SetCapture(hwnd);
+                    SetCursor(LoadCursor(NULL, IDC_SIZEALL));
+                }
+            } else if (!(wParam & MK_RBUTTON)) {
+                rightDragPending = false;
+            }
             break;
         }
         case WM_LBUTTONUP: {
             dragPending = false;
             ReleaseCapture();
+            break;
+        }
+        case WM_RBUTTONDOWN: {
+            // 右键拖拽起点记录（不拦截默认处理，正常右键菜单仍可触发）
+            rightDragStartPt.x = (short)LOWORD(lParam);
+            rightDragStartPt.y = (short)HIWORD(lParam);
+            rightDragPending = true;
+            rightDragActive = false;
+            updateSelectedItems();
+            break;
+        }
+        case WM_RBUTTONUP: {
+            if (rightDragActive) {
+                // 右键拖拽结束：在鼠标位置弹出操作菜单
+                rightDragActive = false;
+                rightDragPending = false;
+                ReleaseCapture();
+                POINT pt; GetCursorPos(&pt);
+                HWND target = WindowFromPoint(pt);
+                // 判断是否拖到了ListView内的文件夹
+                POINT clientPt = pt; ScreenToClient(hwnd, &clientPt);
+                LVHITTESTINFO ht; ht.pt = clientPt;
+                ListView_HitTest(hwnd, &ht);
+                bool onFolder = false;
+                wchar_t folderPath[MAX_PATH] = {0};
+                if (ht.flags & LVHT_ONITEM) {
+                    struct Pane* p = paneFromHwnd(hwnd);
+                    if (p && ht.iItem >= 0 && ht.iItem < p->numItems) {
+                        struct ListItem* item = &p->items[ht.iItem];
+                        if (item->node->type == TYPE_FOLDER) {
+                            onFolder = true;
+                            getFileNodePath(item->node, folderPath);
+                        }
+                    }
+                }
+                HMENU hMenu = CreatePopupMenu();
+                if (onFolder) {
+                    AppendMenuW(hMenu, MF_STRING, 1, L"移动到此处");
+                    AppendMenuW(hMenu, MF_STRING, 2, L"复制到此处");
+                    AppendMenuW(hMenu, MF_STRING, 3, L"在此处创建快捷方式");
+                } else {
+                    AppendMenuW(hMenu, MF_STRING, 4, L"使用该程序打开");
+                }
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+                AppendMenuW(hMenu, MF_STRING, 0, L"取消");
+                int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_LEFTBUTTON, pt.x, pt.y, 0, hwndMain, NULL);
+                DestroyMenu(hMenu);
+                if (cmd == 1 && onFolder) {
+                    // 移动选中文件到目标文件夹
+                    moveSelectedFilesTo(folderPath);
+                } else if (cmd == 2 && onFolder) {
+                    copySelectedFilesTo(folderPath);
+                } else if (cmd == 3 && onFolder) {
+                    createShortcutsIn(folderPath);
+                } else if (cmd == 4) {
+                    // 拖到外部程序：用WM_DROPFILES发送
+                    sendFilesToExternalWindow(target);
+                }
+                return 0;
+            }
+            rightDragPending = false;
             break;
         }
         case WM_COMMAND: {
@@ -1232,6 +1465,87 @@ static void updateSelectedItems(void) {
         i = ListView_GetNextItem(p->hwndList, i, LVNI_SELECTED);
     }
     previewUpdate();
+}
+
+// 右键拖拽辅助：移动选中文件到目标目录
+static void moveSelectedFilesTo(const wchar_t* dstDir) {
+    if (numSelectedItems == 0 || !dstDir || !dstDir[0]) return;
+    cutFiles(selectedItems, numSelectedItems);
+    pasteFiles((wchar_t*)dstDir);
+    refreshPane(activePane());
+}
+
+// 右键拖拽辅助：复制选中文件到目标目录
+static void copySelectedFilesTo(const wchar_t* dstDir) {
+    if (numSelectedItems == 0 || !dstDir || !dstDir[0]) return;
+    copyFiles(selectedItems, numSelectedItems);
+    pasteFiles((wchar_t*)dstDir);
+    refreshPane(activePane());
+}
+
+// 右键拖拽辅助：在目标目录创建选中文件的快捷方式
+static void createShortcutsIn(const wchar_t* dstDir) {
+    if (numSelectedItems == 0 || !dstDir || !dstDir[0]) return;
+    for (int i = 0; i < numSelectedItems; i++) {
+        wchar_t srcPath[MAX_PATH] = {0};
+        getFileNodePath(selectedItems[i], srcPath);
+        const wchar_t* base = wcsrchr(srcPath, L'\\');
+        base = base ? base + 1 : srcPath;
+        wchar_t dstPath[MAX_PATH];
+        swprintf_s(dstPath, MAX_PATH, L"%ls\\%ls.lnk", dstDir, base);
+        // 用IShellLink创建快捷方式
+        IShellLinkW* isl;
+        if (SUCCEEDED(CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (LPVOID*)&isl))) {
+            wchar_t workDir[MAX_PATH] = {0};
+            getParentDirFromPath(srcPath, workDir);
+            IShellLinkW_SetPath(isl, srcPath);
+            IShellLinkW_SetWorkingDirectory(isl, workDir);
+            IPersistFile* pf;
+            if (SUCCEEDED(IShellLinkW_QueryInterface(isl, &IID_IPersistFile, (LPVOID*)&pf))) {
+                IPersistFile_Save(pf, dstPath, TRUE);
+                IPersistFile_Release(pf);
+            }
+            IShellLinkW_Release(isl);
+        }
+    }
+    refreshPane(activePane());
+}
+
+// 右键拖拽辅助：向外部程序窗口发送WM_DROPFILES
+static void sendFilesToExternalWindow(HWND target) {
+    if (numSelectedItems == 0 || !target) return;
+    // 收集文件路径
+    int totalLen = 0;
+    wchar_t** paths = malloc(numSelectedItems * sizeof(wchar_t*));
+    for (int i = 0; i < numSelectedItems; i++) {
+        paths[i] = malloc(MAX_PATH * sizeof(wchar_t));
+        getFileNodePath(selectedItems[i], paths[i]);
+        totalLen += (int)wcslen(paths[i]) + 1;
+    }
+    // 构造 DROPFILES 结构
+    DWORD dropSize = sizeof(DROPFILES) + (totalLen + 2) * sizeof(wchar_t);
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, dropSize);
+    if (hMem) {
+        DROPFILES* df = (DROPFILES*)GlobalLock(hMem);
+        df->pFiles = sizeof(DROPFILES);
+        df->pt.x = 0; df->pt.y = 0;
+        df->fNC = FALSE;
+        df->fWide = TRUE;
+        wchar_t* p = (wchar_t*)((BYTE*)df + sizeof(DROPFILES));
+        for (int i = 0; i < numSelectedItems; i++) {
+            wcscpy_s(p, MAX_PATH, paths[i]);
+            p += wcslen(paths[i]) + 1;
+        }
+        *p = L'\0';
+        GlobalUnlock(hMem);
+        // 找到顶层窗口
+        HWND top = target;
+        while (GetParent(top)) top = GetParent(top);
+        SendMessageTimeoutW(top, WM_DROPFILES, (WPARAM)hMem, 0, SMTO_ABORTIFHUNG, 3000, NULL);
+        GlobalFree(hMem);
+    }
+    for (int i = 0; i < numSelectedItems; i++) free(paths[i]);
+    free(paths);
 }
 
 // 公共：填充活动面板中第一个选中项的路径/类型。
@@ -1751,13 +2065,21 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         }
                     }
                     if (!drewIcon && useCustom && ext && !isExe) {
-                        HBITMAP hIconBmp = getCachedCustomIcon(ext, 16, 16);
+                        // 图片文件：缩略图缩放到16px；其他格式：自定义图标
+                        HBITMAP hIconBmp = NULL;
+                        if (isImageExt(ext)) {
+                            wchar_t filePath[MAX_PATH] = {0};
+                            getFileNodePath(item->node, filePath);
+                            hIconBmp = loadImageThumbnail(filePath, 16, 16);
+                        }
+                        if (!hIconBmp) hIconBmp = getCachedCustomIcon(ext, 16, 16);
                         if (hIconBmp) {
                             HDC iconDC = CreateCompatibleDC(hdc);
                             HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
                             TransparentBlt(hdc, rc.left + 2, rc.top + (rowH-16)/2, 16, 16, iconDC, 0, 0, 16, 16, RGB(255,255,255));
                             SelectObject(iconDC, oldIcon);
                             DeleteDC(iconDC);
+                            if (isImageExt(ext)) DeleteObject(hIconBmp);
                             drewIcon = true;
                         }
                     }
@@ -1775,7 +2097,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     return CDRF_SKIPDEFAULT;
                 }
 
-                // 列表视图：图标在上，文字在下，多列
+                // 列表视图：16px图标在左，单行文字在右，自动多列排列（标准Windows列表样式）
                 if (p->viewStyle == STYLE_LIST) {
                     if (selected || hovered) {
                         COLORREF bgColor = selected ? GetSysColor(COLOR_HIGHLIGHT) : RGB(0,120,215);
@@ -1784,42 +2106,51 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         FillRect(hdc, &bgR, bgBrush);
                         DeleteObject(bgBrush);
                     }
-                    // 绘制32x32图标：exe增强/自定义/系统
+                    // 绘制16x16图标：exe增强/自定义/系统
                     bool useCustom = (item->node->type == TYPE_FILE);
                     wchar_t* ext = useCustom ? wcsrchr(item->node->name, L'.') : NULL;
                     bool isExe = ext && (wcsicmp(ext,L".exe")==0 || wcsicmp(ext,L".lnk")==0);
-                    int iconX = rc.left + (rc.right - rc.left - 32) / 2;
+                    int iconY = rc.top + (rowH - 16) / 2;
                     bool drewIcon = false;
                     if (isExe) {
                         wchar_t exePath[MAX_PATH] = {0};
                         getFileNodePath(item->node, exePath);
                         HICON hExeIcon = getExeIconEnhanced(exePath);
                         if (hExeIcon) {
-                            DrawIconEx(hdc, iconX, rc.top + 4, hExeIcon, 32, 32, 0, NULL, DI_NORMAL);
+                            DrawIconEx(hdc, rc.left + 2, iconY, hExeIcon, 16, 16, 0, NULL, DI_NORMAL);
                             drewIcon = true;
                         }
                     }
                     if (!drewIcon && useCustom && ext && !isExe) {
-                        HBITMAP hIconBmp = getCachedCustomIcon(ext, 32, 32);
+                        // 图片文件：缩略图缩放到16px；其他格式：自定义图标
+                        HBITMAP hIconBmp = NULL;
+                        if (isImageExt(ext)) {
+                            wchar_t filePath[MAX_PATH] = {0};
+                            getFileNodePath(item->node, filePath);
+                            hIconBmp = loadImageThumbnail(filePath, 16, 16);
+                        }
+                        if (!hIconBmp) hIconBmp = getCachedCustomIcon(ext, 16, 16);
                         if (hIconBmp) {
                             HDC iconDC = CreateCompatibleDC(hdc);
                             HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
-                            TransparentBlt(hdc, iconX, rc.top + 4, 32, 32, iconDC, 0, 0, 32, 32, RGB(255,255,255));
+                            TransparentBlt(hdc, rc.left + 2, iconY, 16, 16, iconDC, 0, 0, 16, 16, RGB(255,255,255));
                             SelectObject(iconDC, oldIcon);
                             DeleteDC(iconDC);
+                            if (isImageExt(ext)) DeleteObject(hIconBmp);
                             drewIcon = true;
                         }
                     }
                     if (!drewIcon) {
-                        HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_NORMAL);
+                        HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_SMALL);
                         if (himl && item->icon >= 0)
-                            ImageList_Draw(himl, item->icon, hdc, iconX, rc.top + 4, ILD_TRANSPARENT);
+                            ImageList_Draw(himl, item->icon, hdc, rc.left + 2, iconY, ILD_TRANSPARENT);
                     }
+                    // 文字：图标右侧，单行，省略号
                     SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
                     SetBkMode(hdc, TRANSPARENT);
                     HGDIOBJ oldFont3 = SelectObject(hdc, getUIFont());
-                    RECT textR3 = {rc.left + 2, rc.top + 42, rc.right - 2, rc.bottom - 2};
-                    DrawTextW(hdc, item->node->name, -1, &textR3, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
+                    RECT textR3 = {rc.left + 22, rc.top, rc.right - 2, rc.bottom};
+                    DrawTextW(hdc, item->node->name, -1, &textR3, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
                     SelectObject(hdc, oldFont3);
                     return CDRF_SKIPDEFAULT;
                 }
@@ -1880,13 +2211,21 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     }
                 }
                 if (!drewIcon && useCustomIcon) {
-                    HBITMAP hIconBmp = getCachedCustomIcon(fileExt, 16, 16);
+                    // 图片文件：缩略图缩放到16px；其他格式：自定义图标
+                    HBITMAP hIconBmp = NULL;
+                    if (isImageExt(fileExt)) {
+                        wchar_t filePath[MAX_PATH] = {0};
+                        getFileNodePath(item->node, filePath);
+                        hIconBmp = loadImageThumbnail(filePath, 16, 16);
+                    }
+                    if (!hIconBmp) hIconBmp = getCachedCustomIcon(fileExt, 16, 16);
                     if (hIconBmp) {
                         HDC iconDC = CreateCompatibleDC(hdc);
                         HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
                         TransparentBlt(hdc, rc.left + 4, rc.top + (rowH - 16) / 2, 16, 16, iconDC, 0, 0, 16, 16, RGB(255,255,255));
                         SelectObject(iconDC, oldIcon);
                         DeleteDC(iconDC);
+                        if (isImageExt(fileExt)) DeleteObject(hIconBmp);
                         drewIcon = true;
                     }
                 }
@@ -2336,8 +2675,8 @@ void setViewStyle(enum ViewStyle newViewStyle) {
             break;
         case STYLE_LIST:
             wndstyle |= LVS_LIST | LVS_AUTOARRANGE;
-            // 列表视图：紧凑多列排列
-            ListView_SetIconSpacing(p->hwndList, 200, 22);
+            // 列表视图：紧凑多列，行高容纳16px图标+文字
+            ListView_SetIconSpacing(p->hwndList, 200, 26);
             break;
         case STYLE_DETAILS:
             wndstyle |= LVS_REPORT;
@@ -2359,6 +2698,10 @@ void setViewStyle(enum ViewStyle newViewStyle) {
     // 切换视图后强制重排图标，确保多列排列正常
     if (newViewStyle != STYLE_DETAILS) {
         ListView_Arrange(p->hwndList, LVA_ALIGNLEFT);
+    } else {
+        // 切换到详细信息时立即按字体计算列宽，避免日期/类型截断
+        RECT rc; GetClientRect(p->hwndList, &rc);
+        cvFitColumns(p->hwndList, rc.right - rc.left);
     }
 }
 
@@ -2446,7 +2789,26 @@ static LRESULT CALLBACK HeaderWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 // 名称列吸收剩余宽度。
 
 void cvFitColumns(HWND list, int totalWidth) {
-    int typeW = 96, sizeW = 196, dateW = 120;
+    // 按当前UI字体动态计算列宽，避免大字体下日期/类型被截断
+    HDC hdc = GetDC(list);
+    HFONT hf = (HFONT)SendMessage(list, WM_GETFONT, 0, 0);
+    HGDIOBJ oldFont = hf ? SelectObject(hdc, hf) : NULL;
+    SIZE sz;
+    // 日期列："MM/DD/YYYY HH:MM" = 16字符
+    GetTextExtentPoint32W(hdc, L"00/00/0000 00:00", 16, &sz);
+    int dateW = sz.cx + 24;  // 加内边距
+    // 类型列：最长约"应用程序"4字符
+    GetTextExtentPoint32W(hdc, L"应用程序", 4, &sz);
+    int typeW = sz.cx + 24;
+    // 大小列："1024.00 MB" 约10字符
+    GetTextExtentPoint32W(hdc, L"1024.00 MB", 10, &sz);
+    int sizeW = sz.cx + 24;
+    if (oldFont) SelectObject(hdc, oldFont);
+    ReleaseDC(list, hdc);
+    // 最小宽度兜底
+    if (dateW < 120) dateW = 120;
+    if (typeW < 80) typeW = 80;
+    if (sizeW < 100) sizeW = 100;
     int other = typeW + sizeW + dateW;
     int nameW = totalWidth - other - GetSystemMetrics(SM_CXVSCROLL) - 6;
     if (nameW < 90) nameW = 90;
@@ -2754,6 +3116,7 @@ static INT_PTR CALLBACK PropertiesDialogProc(HWND hwndDlg, UINT msg, WPARAM wPar
             GetClientRect(hwndDlg, &rect1);
             SetWindowPos(hwndDlg, NULL, (rect.right + rect.left) / 2 - (rect1.right - rect1.left) / 2,
                          (rect.bottom + rect.top) / 2 - (rect1.bottom - rect1.top) / 2, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+            SendMessageW(hwndDlg, WM_SETFONT, (WPARAM)getUIFont(), TRUE);
             SetWindowText(hwndDlg, lc_str.properties);
             SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_NAME), propInfo.name);
             SetWindowText(GetDlgItem(hwndDlg, IDC_PROP_TYPE), propInfo.type);
@@ -2848,6 +3211,8 @@ static INT_PTR CALLBACK ConfirmDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam,
         case WM_INITDIALOG: {
             const wchar_t* confirmMsg = (const wchar_t*)lParam;
             SetWindowText(hwndDlg, L"确认");
+            // 统一使用UI字体，避免Wine下系统默认字体模糊
+            SendMessageW(hwndDlg, WM_SETFONT, (WPARAM)getUIFont(), TRUE);
             SetWindowText(GetDlgItem(hwndDlg, IDC_CONFIRM_MSG), confirmMsg ? confirmMsg : L"");
             SetWindowText(GetDlgItem(hwndDlg, IDYES), L"是(Y)");
             SetWindowText(GetDlgItem(hwndDlg, IDNO), L"否(N)");
@@ -3343,6 +3708,13 @@ static void applyRegistryLocale(const wchar_t* locale) {
     RegSetValueExW(hkey, L"Locale", 0, REG_SZ, (BYTE*)lcid, (wcslen(lcid) + 1) * sizeof(wchar_t));
     RegCloseKey(hkey);
     g_regLocaleModified = true;
+    // 持久化原始Locale，防止BFM崩溃后无法回退
+    HKEY hkey2;
+    if (RegCreateKeyW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", &hkey2) == ERROR_SUCCESS) {
+        if (g_savedRegLocale[0])
+            RegSetValueExW(hkey2, L"SavedLocale", 0, REG_SZ, (BYTE*)g_savedRegLocale, (wcslen(g_savedRegLocale)+1)*sizeof(wchar_t));
+        RegCloseKey(hkey2);
+    }
     // 广播设置变更，让Wine立即生效
     DWORD_PTR res;
     SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"intl", SMTO_ABORTIFHUNG, 1000, &res);
@@ -3359,8 +3731,31 @@ static DWORD WINAPI restoreRegistryLocaleThread(LPVOID param) {
             RegCloseKey(hkey);
         }
         g_regLocaleModified = false;
+        // 清除持久化标记
+        HKEY hkey2;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0, KEY_SET_VALUE, &hkey2) == ERROR_SUCCESS) {
+            RegDeleteValueW(hkey2, L"SavedLocale");
+            RegCloseKey(hkey2);
+        }
     }
     return 0;
+}
+
+// 启动时全局回退：如果上次转区后BFM崩溃导致Locale未恢复，自动还原
+void cvEnsureLocaleFallback(void) {
+    HKEY hkey;
+    wchar_t saved[32] = {0};
+    DWORD sz = sizeof(saved);
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\Winlator\\WFM", 0, KEY_READ | KEY_SET_VALUE, &hkey) != ERROR_SUCCESS) return;
+    if (RegQueryValueExW(hkey, L"SavedLocale", NULL, NULL, (BYTE*)saved, &sz) == ERROR_SUCCESS && saved[0]) {
+        HKEY hIntl;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\International", 0, KEY_SET_VALUE, &hIntl) == ERROR_SUCCESS) {
+            RegSetValueExW(hIntl, L"Locale", 0, REG_SZ, (BYTE*)saved, (wcslen(saved)+1)*sizeof(wchar_t));
+            RegCloseKey(hIntl);
+        }
+        RegDeleteValueW(hkey, L"SavedLocale");
+    }
+    RegCloseKey(hkey);
 }
 
 static DWORD WINAPI launcherThread(LPVOID param) {
@@ -4297,6 +4692,13 @@ static void onMenuItemSortTypeClick() { doSortByColumn(COLUMN_TYPE_IDX); }
 static void onMenuItemSortSizeClick() { doSortByColumn(COLUMN_SIZE_IDX); }
 static void onMenuItemSortDateClick() { doSortByColumn(COLUMN_DATE_IDX); }
 
+// 查看菜单排序入口（所有视图通用）
+void cvSetSort(int colIdx) {
+    if (colIdx < 0 || colIdx > 3) return;
+    static const int map[] = {COLUMN_NAME_IDX, COLUMN_TYPE_IDX, COLUMN_SIZE_IDX, COLUMN_DATE_IDX};
+    doSortByColumn(map[colIdx]);
+}
+
 static void refreshPane(struct Pane* p) {
     // 空指针保护：防止切换视图/磁盘时崩溃
     if (!p || !p->hwndList || !p->currPath) return;
@@ -4460,11 +4862,16 @@ static bool isArchiveExt(const wchar_t* path) {
 static bool find7z(wchar_t* out) {
     out[0] = L'\0';
     if (SearchPathW(NULL, L"7z.exe", NULL, MAX_PATH, out, NULL)) return true;
+    if (SearchPathW(NULL, L"7za.exe", NULL, MAX_PATH, out, NULL)) return true;
     static const wchar_t* candidates[] = {
         L"C:\\Program Files\\7-Zip\\7z.exe",
         L"C:\\Program Files (x86)\\7-Zip\\7z.exe",
+        L"C:\\7-Zip\\7z.exe",
+        L"D:\\7-Zip\\7z.exe",
         L"Z:\\opt\\apps\\7-Zip\\7z.exe",
         L"Z:\\opt\\apps\\7-Zip\\7za.exe",
+        L"Z:\\7-Zip\\7z.exe",
+        L"Z:\\Program Files\\7-Zip\\7z.exe",
         NULL
     };
     for (int i = 0; candidates[i]; i++) {
@@ -4608,7 +5015,11 @@ static void run7zExtract(const wchar_t* archive, const wchar_t* outDir) {
     // 显示解压进度窗口
     const wchar_t* baseName = wcsrchr(archive, L'\\');
     baseName = baseName ? baseName + 1 : archive;
-    showExtractProgress(baseName);
+    wchar_t displayName[MAX_PATH];
+    swprintf_s(displayName, MAX_PATH, L"解压：%ls", baseName);
+    showExtractProgress(displayName);
+    // 同步操作名，确保完成弹窗显示"解压完成"而非上次操作残留
+    wcscpy_s(g_sevenZipLastOpName, MAX_PATH, displayName);
 
     struct ExtractArg* arg = (struct ExtractArg*)malloc(sizeof(struct ExtractArg));
     if (!arg) { hideExtractProgress(); return; }

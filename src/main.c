@@ -778,6 +778,10 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_VIEW_FONT_MEDIUM: applyFontSize(11); createMainMenu(); break;
         case ID_VIEW_FONT_LARGE:  applyFontSize(13); createMainMenu(); break;
         case ID_VIEW_FONT_XLARGE: applyFontSize(15); createMainMenu(); break;
+        case ID_SORT_NAME: cvSetSort(0); break;
+        case ID_SORT_TYPE: cvSetSort(1); break;
+        case ID_SORT_SIZE: cvSetSort(2); break;
+        case ID_SORT_DATE: cvSetSort(3); break;
         case ID_NAV_BACK: navGoBack(); break;
         case ID_NAV_FORWARD: navGoForward(); break;
         case ID_NAV_RECENT: recentMenu(); break;
@@ -803,6 +807,7 @@ static HWND hwndZoom = NULL;
 static wchar_t previewPath[MAX_PATH] = {0};
 static IPicture* previewPic = NULL;
 static HICON previewIcon = NULL;
+static HBITMAP previewCustomBmp = NULL;  // 自定义图标位图（与主视图图标识别联动）
 static wchar_t previewTypeName[64] = {0};
 static wchar_t previewSizeStr[32] = {0};
 static wchar_t previewDateStr[64] = {0};
@@ -878,6 +883,7 @@ void previewUpdate(void) {
 
     if (previewPic) { previewPic->lpVtbl->Release(previewPic); previewPic = NULL; }
     if (previewIcon) { DestroyIcon(previewIcon); previewIcon = NULL; }
+    if (previewCustomBmp) { DeleteObject(previewCustomBmp); previewCustomBmp = NULL; }
     previewPath[0] = L'\0';
     previewTypeName[0] = L'\0';
     previewSizeStr[0] = L'\0';
@@ -890,16 +896,18 @@ void previewUpdate(void) {
     if (!path[0]) { InvalidateRect(hwndPreview, NULL, TRUE); return; }
     wcscpy_s(previewPath, MAX_PATH, path);
 
-    // 非图像文件的大图标（及回退）。exe优先用增强提取。
+    // 非图像文件的大图标：优先用与主视图一致的自定义图标（图片缩略图/格式图标/exe增强），回退系统图标
     bool isExeFile = false;
     {
         const wchar_t* dot = wcsrchr(path, L'.');
         isExeFile = dot && (wcsicmp(dot, L".exe")==0 || wcsicmp(dot, L".lnk")==0);
     }
-    if (isExeFile) {
+    // 先尝试自定义图标（与主视图图标识别联动，96x96）
+    previewCustomBmp = cvGetFileIconBitmap(path, 96, 96);
+    if (!previewCustomBmp && isExeFile) {
         previewIcon = getExeIconEnhanced(path);
     }
-    if (!previewIcon) {
+    if (!previewCustomBmp && !previewIcon) {
         SHFILEINFOW sfi = {0};
         if (SHGetFileInfoW(path, 0, &sfi, sizeof(sfi),
                            SHGFI_ICON | SHGFI_LARGEICON | SHGFI_TYPENAME)) {
@@ -1098,6 +1106,15 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 DrawTextW(hdc, previewText, -1, &tr, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
                 SelectObject(hdc, oldf);
                 if (hMono) DeleteObject(hMono);
+            } else if (previewCustomBmp) {
+                // 自定义图标（与主视图图标识别联动）：居中绘制96x96
+                HDC memDC = CreateCompatibleDC(hdc);
+                HBITMAP oldBmp = SelectObject(memDC, previewCustomBmp);
+                SetStretchBltMode(hdc, HALFTONE);
+                StretchBlt(hdc, margin + (contentW - 96)/2, y + (mediaH - 96)/2, 96, 96,
+                           memDC, 0, 0, 96, 96, SRCCOPY);
+                SelectObject(memDC, oldBmp);
+                DeleteDC(memDC);
             } else if (previewIcon) {
                 DrawIconEx(hdc, margin + (contentW - 48) / 2, y + (mediaH - 48) / 2,
                            previewIcon, 48, 48, 0, NULL, DI_NORMAL);
@@ -1516,6 +1533,15 @@ static void createMainMenu() {
     AppendMenu(hmView, MF_STRING, ID_VIEW_PREVIEW, lc_str.preview_pane);
     AppendMenu(hmView, MF_STRING, ID_VIEW_HIDDEN, lc_str.show_hidden);
     AppendMenu(hmView, MF_STRING, ID_VIEW_MEMORY, L"显示存储信息");
+    // 排序方式子菜单：所有视图通用，不依赖右键空白
+    {
+        HMENU hmSort = CreatePopupMenu();
+        AppendMenu(hmSort, MF_STRING, ID_SORT_NAME, lc_str.sort_name);
+        AppendMenu(hmSort, MF_STRING, ID_SORT_TYPE, lc_str.sort_type);
+        AppendMenu(hmSort, MF_STRING, ID_SORT_SIZE, lc_str.sort_size);
+        AppendMenu(hmSort, MF_STRING, ID_SORT_DATE, lc_str.sort_date);
+        AppendMenu(hmView, MF_POPUP | MF_STRING, (UINT_PTR)hmSort, lc_str.sort_by ? lc_str.sort_by : L"排序方式");
+    }
     // 字体大小子菜单：用户可自由调整，比自适应DPI更直接有效
     {
         HMENU hmFont = CreatePopupMenu();
@@ -1679,6 +1705,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     createSizebar();
     createContentView();
     cvInitPanePaths();
+    cvEnsureLocaleFallback();  // 启动时回退上次转区残留的Locale（崩溃保护）
     // 预览面板（默认隐藏；通过 视图 > 预览面板 切换）。
 
     hwndPreview = CreateWindowEx(WS_EX_CLIENTEDGE, previewWndClass, L"",
