@@ -35,10 +35,24 @@ jobs:
           $CC -o wfm.exe obj/*.o -s -lcomctl32 -lgdi32 -lole32 -loleaut32 -luuid -luxtheme -lshlwapi -lcrypt32 -lmsimg32 ./libcdio.dll -Wl,--subsystem,windows
           file wfm.exe
 
+      - name: Fetch latest 7-Zip (auto official release)
+        run: |
+          set -euxo pipefail
+          # 从 7-Zip 官方 GitHub 仓库自动获取最新版本号（26.03 → 文件名 7z2603-x64.exe）
+          TAG=$(curl -s --max-time 20 https://api.github.com/repos/ip7z/7zip/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+          if [ -z "$TAG" ]; then TAG="26.03"; echo "API 获取失败，回退到 26.03"; fi
+          VER=$(echo "$TAG" | tr -d '.')
+          URL="https://github.com/ip7z/7zip/releases/download/${TAG}/7z${VER}-x64.exe"
+          echo "下载 7-Zip ${TAG} (Winlator x64): $URL"
+          curl -fL --retry 3 --max-time 120 -o "7z${VER}-x64.exe" "$URL"
+          ls -l 7z*.exe
+
       - name: Package release zip (with install scripts)
         run: |
           mkdir -p release
           cp wfm.exe libcdio.dll release/
+          # 复制 7-Zip 安装包（安装脚本会自动静默安装到 Z:\opt\apps\7-Zip）
+          cp 7z*-x64.exe release/ 2>/dev/null || true
           # 复制安装脚本（根目录为新版）
           if [ -f 安装.bat ]; then cp 安装.bat release/; fi
           if [ -f 卸载还原.bat ]; then cp 卸载还原.bat release/; fi
