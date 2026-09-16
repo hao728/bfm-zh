@@ -492,18 +492,6 @@ static void applyFontSize(int pt) {
     DrawMenuBar(hwndMain);
 }
 
-// 切换主题后刷新所有界面元素
-static void applyThemeAndRefresh(void) {
-    // 重建菜单（勾选当前主题）
-    createMainMenu();
-    // 刷新内容区（主题颜色变化）
-    cvRefreshLanguage();
-    // 重绘标题栏、工具栏、状态栏、导航栏
-    InvalidateRect(hwndMain, NULL, TRUE);
-    DrawMenuBar(hwndMain);
-    RedrawWindow(hwndMain, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
-}
-
 HFONT getUIFont(void) {
     if (!uiFont) {
         HDC screen = GetDC(NULL);
@@ -699,6 +687,18 @@ extern HICON getExeIconEnhanced(const wchar_t* exePath);
 // 前向声明：createMainMenu 在后面定义，但被 mainMenuCommand 调用
 
 static void createMainMenu();
+
+// 切换主题后刷新所有界面元素（必须在 createMainMenu 声明之后定义）
+static void applyThemeAndRefresh(void) {
+    // 重建菜单（勾选当前主题）
+    createMainMenu();
+    // 刷新内容区（主题颜色变化）
+    cvRefreshLanguage();
+    // 重绘标题栏、工具栏、状态栏、导航栏
+    InvalidateRect(hwndMain, NULL, TRUE);
+    DrawMenuBar(hwndMain);
+    RedrawWindow(hwndMain, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+}
 
 void mainMenuCommand(WPARAM wParam) {
     switch (LOWORD(wParam)) {
