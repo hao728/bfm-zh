@@ -36,14 +36,43 @@ if errorlevel 2 (
 )
 
 echo.
+:: ========== 关键修复：结束进程并验证退出 ==========
 echo [1/3] 关闭 WFM...
 taskkill /f /im wfm.exe >nul 2>&1
-timeout /t 1 /nobreak >nul
+set "WAIT_COUNT=0"
+:wait_exit
+tasklist /fi "imagename eq wfm.exe" 2>nul | findstr /i "wfm.exe" >nul
+if errorlevel 1 (
+    echo       WFM 进程已结束
+    goto :proc_killed
+)
+set /a WAIT_COUNT+=1
+if %WAIT_COUNT% geq 10 (
+    echo.
+    echo [错误] 无法结束 WFM 进程！
+    echo        请手动关闭 WFM 窗口后，按任意键重试
+    pause >nul
+    taskkill /f /im wfm.exe >nul 2>&1
+    set "WAIT_COUNT=0"
+    goto :wait_exit
+)
+ping -n 2 127.0.0.1 >nul
+goto :wait_exit
+:proc_killed
+echo.
 
 echo [2/3] 还原原版文件...
 if exist "%TARGET_DIR%\wfm.exe.bak_zh" (
+    for %%A in ("%TARGET_DIR%\wfm.exe.bak_zh") do set "BAK_SIZE=%%~zA"
     move /y "%TARGET_DIR%\wfm.exe.bak_zh" "%TARGET_DIR%\wfm.exe" >nul
-    echo       已还原 wfm.exe
+    for %%A in ("%TARGET_DIR%\wfm.exe") do set "DST_SIZE=%%~zA"
+    if not "%BAK_SIZE%"=="%DST_SIZE%" (
+        echo [错误] wfm.exe 还原失败！文件大小不匹配
+        echo        备份大小: %BAK_SIZE% 字节，当前大小: %DST_SIZE% 字节
+        pause
+        exit /b 1
+    )
+    echo       已还原 wfm.exe (%BAK_SIZE% 字节，校验通过)
 )
 if exist "%TARGET_DIR%\libcdio.dll.bak_zh" (
     move /y "%TARGET_DIR%\libcdio.dll.bak_zh" "%TARGET_DIR%\libcdio.dll" >nul

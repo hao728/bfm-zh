@@ -10,7 +10,7 @@ echo.
 
 :: 获取脚本所在目录
 set "SCRIPT_DIR=%~dp0"
-:: WFM 正确部署位置：C:\windows\wfm.exe（上游 README 指定，保持 Bannerlator 启动路径不变）
+:: WFM 正确部署位置：C:\windows\wfm.exe（上游 README 指定）
 set "TARGET_DIR=C:\windows"
 
 :: 如果目标目录不存在，尝试查找WFM
@@ -31,6 +31,32 @@ if not exist "%TARGET_DIR%\wfm.exe" (
 echo [信息] 目标目录: %TARGET_DIR%
 echo.
 
+:: ========== 关键修复：结束 WFM 进程并验证退出 ==========
+echo [0/5] 结束 WFM 进程...
+taskkill /f /im wfm.exe >nul 2>&1
+:: 循环等待进程退出（最多5秒），Wine下taskkill可能延迟
+set "WAIT_COUNT=0"
+:wait_exit
+tasklist /fi "imagename eq wfm.exe" 2>nul | findstr /i "wfm.exe" >nul
+if errorlevel 1 (
+    echo       WFM 进程已结束
+    goto :proc_killed
+)
+set /a WAIT_COUNT+=1
+if %WAIT_COUNT% geq 10 (
+    echo.
+    echo [错误] 无法结束 WFM 进程！
+    echo        请手动关闭 WFM 窗口后，按任意键重试
+    pause >nul
+    taskkill /f /im wfm.exe >nul 2>&1
+    set "WAIT_COUNT=0"
+    goto :wait_exit
+)
+ping -n 2 127.0.0.1 >nul
+goto :wait_exit
+:proc_killed
+echo.
+
 :: 检查是否已安装过本版本
 if exist "%TARGET_DIR%\wfm.exe.bak_zh" (
     echo [警告] 检测到已存在备份文件，说明之前已安装过汉化版
@@ -45,7 +71,7 @@ if exist "%TARGET_DIR%\wfm.exe.bak_zh" (
 )
 
 :: 备份原版文件
-echo [1/4] 备份原版文件...
+echo [1/5] 备份原版文件...
 if not exist "%TARGET_DIR%\wfm.exe.bak_zh" (
     copy /y "%TARGET_DIR%\wfm.exe" "%TARGET_DIR%\wfm.exe.bak_zh" >nul
     echo       已备份 wfm.exe -^> wfm.exe.bak_zh
@@ -58,8 +84,8 @@ if exist "%TARGET_DIR%\libcdio.dll" (
 )
 echo.
 
-:: 部署 7-Zip 便携版
-echo [2/4] 检查 7-Zip 环境...
+:: 部署 7-Zip
+echo [2/5] 检查 7-Zip 环境...
 set "SEVENZIP_DIR=Z:\opt\apps\7-Zip"
 if exist "%SEVENZIP_DIR%\7z.exe" (
     echo       7-Zip 已存在: %SEVENZIP_DIR%
@@ -77,26 +103,53 @@ if exist "%SEVENZIP_DIR%\7z.exe" (
         echo       7-Zip 已安装到 %SEVENZIP_DIR%
     ) else (
         echo       [提示] 未找到 7-Zip 文件，解压/压缩功能将不可用
-        echo              可将 7z.exe + 7z.dll 放入 7z\ 目录后重新运行
     )
 )
 echo.
 
-:: 复制汉化版文件
-echo [3/4] 安装汉化版文件...
+:: ========== 关键修复：复制后校验文件大小 ==========
+echo [3/5] 安装汉化版文件...
+:: 获取源文件大小
+for %%A in ("%SCRIPT_DIR%wfm.exe") do set "SRC_SIZE=%%~zA"
 copy /y "%SCRIPT_DIR%wfm.exe" "%TARGET_DIR%\wfm.exe" >nul
-if exist "%SCRIPT_DIR%libcdio.dll" (
-    copy /y "%SCRIPT_DIR%libcdio.dll" "%TARGET_DIR%\libcdio.dll" >nul
+:: 校验目标文件大小
+for %%A in ("%TARGET_DIR%\wfm.exe") do set "DST_SIZE=%%~zA"
+if not "%SRC_SIZE%"=="%DST_SIZE%" (
+    echo.
+    echo [错误] wfm.exe 复制失败！
+    echo        源文件大小: %SRC_SIZE% 字节
+    echo        目标文件大小: %DST_SIZE% 字节
+    echo        可能原因：文件被占用或权限不足
+    echo        请确认 WFM 已完全关闭后重新运行本脚本
+    pause
+    exit /b 1
 )
-echo       已复制 wfm.exe
-if exist "%SCRIPT_DIR%libcdio.dll" echo       已复制 libcdio.dll
+echo       已复制 wfm.exe (%SRC_SIZE% 字节，校验通过)
+
+if exist "%SCRIPT_DIR%libcdio.dll" (
+    for %%A in ("%SCRIPT_DIR%libcdio.dll") do set "SRC_SIZE=%%~zA"
+    copy /y "%SCRIPT_DIR%libcdio.dll" "%TARGET_DIR%\libcdio.dll" >nul
+    for %%A in ("%TARGET_DIR%\libcdio.dll") do set "DST_SIZE=%%~zA"
+    if not "%SRC_SIZE%"=="%DST_SIZE%" (
+        echo [警告] libcdio.dll 复制失败，继续安装...
+    ) else (
+        echo       已复制 libcdio.dll (%SRC_SIZE% 字节，校验通过)
+    )
+)
 echo.
 
 :: 重启 WFM
-echo [4/4] 重启 WFM...
-taskkill /f /im wfm.exe >nul 2>&1
-timeout /t 1 /nobreak >nul
+echo [4/5] 启动 WFM...
 start "" "%TARGET_DIR%\wfm.exe"
+echo.
+
+echo [5/5] 安装完成验证...
+ping -n 3 127.0.0.1 >nul
+if exist "%TARGET_DIR%\wfm.exe" (
+    echo       验证通过：wfm.exe 已部署到 %TARGET_DIR%
+) else (
+    echo       [警告] 未找到 wfm.exe，请手动检查
+)
 echo.
 
 echo ============================================
