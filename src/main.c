@@ -680,6 +680,7 @@ INT_PTR CALLBACK AboutDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM l
 extern void cvRefreshLanguage(void);
 extern void onMenuItemLoadISOImageClick(void);
 extern void onMenuItemUnloadISOImageClick(void);
+extern void hideExtractProgress(void);
 
 // 前向声明：createMainMenu 在后面定义，但被 mainMenuCommand 调用
 
@@ -1228,6 +1229,7 @@ void resizeControls() {
 LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_USER_EXTRACT_DONE:
+            hideExtractProgress();
             navigateRefresh();
             break;
         case WM_USER_BOOST_START:

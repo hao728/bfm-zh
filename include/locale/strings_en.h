@@ -137,7 +137,7 @@ static inline void loadStrings_en() {
     lc_str.launcher_run_with = L"Run with external launcher";
     lc_str.preview_pane = L"Preview pane";
     lc_str.extract_here = L"Extract here";
-    lc_str.extract_to_folder = L"Extract to folder";
+    lc_str.extract_to_folder = L"Extract to same-name folder";
     lc_str.shared_storage = L"shared";
     lc_str.diff_files = L"Compare files";
     lc_str.launcher_boost_aggressive = L"Aggressive boost & run";
