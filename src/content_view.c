@@ -148,66 +148,208 @@ static HBITMAP loadImageThumbnail(const wchar_t* path, int thumbW, int thumbH) {
 }
 
 // 绘制自定义图标（音乐/视频/压缩包/文档等）
+// 绘制真正的文件类型图标（用GDI绘制图案，非纯色方块）
 static HBITMAP drawCustomIcon(const wchar_t* ext, int w, int h) {
     HDC memDC = CreateCompatibleDC(NULL);
     HBITMAP hBmp = CreateCompatibleBitmap(GetDC(NULL), w, h);
     HBITMAP oldBmp = SelectObject(memDC, hBmp);
 
-    // 透明背景
+    // 白色背景（作为掩码）
     FillRect(memDC, &(RECT){0,0,w,h}, (HBRUSH)GetStockObject(WHITE_BRUSH));
 
-    int cx = w/2, cy = h/2;
-    COLORREF bgColor = RGB(200,200,200);
-    const wchar_t* label = L"?";
+    int pad = w / 8;  // 边距
+    int iw = w - pad*2;  // 图标绘制区域宽度
+    int ih = h - pad*2;  // 图标绘制区域高度
+    int ix = pad, iy = pad;
+
+    // 辅助函数：绘制带折角的文档
+    #define DRAW_DOC(bgR, bgG, bgB, letter) do { \
+        HBRUSH hb = CreateSolidBrush(RGB(bgR,bgG,bgB)); \
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(bgR*0.7,bgG*0.7,bgB*0.7)); \
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp); \
+        POINT pts[] = {{ix,iy},{ix+iw*0.7,iy},{ix+iw,iy+ih*0.3},{ix+iw,iy+ih},{ix,iy+ih}}; \
+        Polygon(memDC, pts, 5); \
+        /* 折角 */ \
+        HBRUSH hb2 = CreateSolidBrush(RGB(255,255,255)); \
+        SelectObject(memDC, hb2); \
+        POINT fold[] = {{ix+iw*0.7,iy},{ix+iw,iy+ih*0.3},{ix+iw*0.7,iy+ih*0.3}}; \
+        Polygon(memDC, fold, 3); \
+        DeleteObject(hb2); \
+        SelectObject(memDC, ob); SelectObject(memDC, op); \
+        DeleteObject(hb); DeleteObject(hp); \
+        /* 文字 */ \
+        SetBkMode(memDC, TRANSPARENT); \
+        SetTextColor(memDC, RGB(255,255,255)); \
+        HFONT hf = CreateFontW(ih*0.35, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, \
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, \
+            DEFAULT_QUALITY, DEFAULT_PITCH|FF_SWISS, L"Arial"); \
+        HFONT of = SelectObject(memDC, hf); \
+        RECT tr = {ix, iy+ih*0.35, ix+iw, iy+ih*0.75}; \
+        DrawTextW(memDC, letter, -1, &tr, DT_CENTER|DT_VCENTER|DT_SINGLELINE); \
+        SelectObject(memDC, of); DeleteObject(hf); \
+    } while(0)
 
     if (isAudioExt(ext)) {
-        bgColor = RGB(70,130,180); label = L"♪";  // 蓝色音符
-    } else if (isVideoExt(ext)) {
-        bgColor = RGB(138,43,226); label = L"▶";  // 紫色播放
-    } else if (ext && (wcsicmp(ext, L".zip")==0 || wcsicmp(ext, L".7z")==0 ||
-                        wcsicmp(ext, L".rar")==0 || wcsicmp(ext, L".tar")==0 ||
-                        wcsicmp(ext, L".gz")==0)) {
-        bgColor = RGB(218,165,32); label = L"zip"; // 金黄压缩包
-    } else if (isDocumentExt(ext)) {
-        bgColor = RGB(220,20,60); label = L"DOC";  // 红色文档
-    } else if (isSpreadsheetExt(ext)) {
-        bgColor = RGB(34,139,34); label = L"XLS";  // 绿色表格
-    } else if (isPresentationExt(ext)) {
-        bgColor = RGB(255,140,0); label = L"PPT";  // 橙色幻灯片
-    } else if (wcsicmp(ext, L".exe")==0 || wcsicmp(ext, L".lnk")==0) {
-        bgColor = RGB(0,100,0); label = L"EXE";    // 深绿可执行
-    } else if (wcsicmp(ext, L".dll")==0) {
-        bgColor = RGB(105,105,105); label = L"DLL"; // 灰色库
-    } else if (wcsicmp(ext, L".bat")==0 || wcsicmp(ext, L".cmd")==0) {
-        bgColor = RGB(0,0,0); label = L">_";        // 黑色脚本
-    } else if (wcsicmp(ext, L".reg")==0) {
-        bgColor = RGB(139,0,0); label = L"REG";     // 暗红注册表
-    } else if (wcsicmp(ext, L".txt")==0 || wcsicmp(ext, L".log")==0) {
-        bgColor = RGB(255,255,255); label = L"TXT"; // 白色文本
+        // 音乐：蓝色背景 + 白色音符
+        HBRUSH hb = CreateSolidBrush(RGB(70,130,180));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(70,130,180));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/4, ih/4);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        SetBkMode(memDC, TRANSPARENT); SetTextColor(memDC, RGB(255,255,255));
+        HFONT hf = CreateFontW(ih*0.6, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY, DEFAULT_PITCH|FF_SWISS, L"Arial");
+        HFONT of = SelectObject(memDC, hf);
+        RECT tr = {ix, iy, ix+iw, iy+ih};
+        DrawTextW(memDC, L"\u266A", -1, &tr, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SelectObject(memDC, of); DeleteObject(hf);
+    }
+    else if (isVideoExt(ext)) {
+        // 视频：紫色背景 + 白色播放三角形
+        HBRUSH hb = CreateSolidBrush(RGB(138,43,226));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(138,43,226));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/4, ih/4);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 播放三角形
+        HBRUSH hb2 = CreateSolidBrush(RGB(255,255,255));
+        SelectObject(memDC, hb2);
+        POINT tri[] = {{ix+iw*0.35, iy+ih*0.25}, {ix+iw*0.35, iy+ih*0.75}, {ix+iw*0.75, iy+ih*0.5}};
+        Polygon(memDC, tri, 3);
+        DeleteObject(hb2);
+    }
+    else if (ext && (wcsicmp(ext,L".zip")==0||wcsicmp(ext,L".7z")==0||wcsicmp(ext,L".rar")==0||
+                     wcsicmp(ext,L".tar")==0||wcsicmp(ext,L".gz")==0)) {
+        // 压缩包：金黄文件夹 + 拉链
+        HBRUSH hb = CreateSolidBrush(RGB(218,165,32));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(180,130,20));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        // 文件夹主体
+        Rectangle(memDC, ix, iy+ih*0.2, ix+iw, iy+ih);
+        // 文件夹标签
+        Rectangle(memDC, ix, iy+ih*0.1, ix+iw*0.4, iy+ih*0.25);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 拉链（中间竖线+锯齿）
+        HPEN hp2 = CreatePen(PS_SOLID, 2, RGB(100,80,20));
+        HPEN op2 = SelectObject(memDC, hp2);
+        MoveToEx(memDC, ix+iw/2, iy+ih*0.25, NULL);
+        LineTo(memDC, ix+iw/2, iy+ih*0.9);
+        for (int i = 0; i < 4; i++) {
+            int zy = iy+ih*0.3 + i*ih*0.15;
+            MoveToEx(memDC, ix+iw/2-4, zy, NULL);
+            LineTo(memDC, ix+iw/2+4, zy);
+        }
+        SelectObject(memDC, op2); DeleteObject(hp2);
+    }
+    else if (ext && wcsicmp(ext,L".pdf")==0) {
+        DRAW_DOC(220,20,60, L"PDF");
+    }
+    else if (ext && (wcsicmp(ext,L".doc")==0||wcsicmp(ext,L".docx")==0)) {
+        DRAW_DOC(40,90,180, L"W");
+    }
+    else if (isSpreadsheetExt(ext)) {
+        DRAW_DOC(34,139,34, L"X");
+        // 表格线
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(255,255,255));
+        HPEN op = SelectObject(memDC, hp);
+        MoveToEx(memDC, ix+iw*0.2, iy+ih*0.55, NULL); LineTo(memDC, ix+iw*0.8, iy+ih*0.55);
+        MoveToEx(memDC, ix+iw*0.5, iy+ih*0.45, NULL); LineTo(memDC, ix+iw*0.5, iy+ih*0.8);
+        SelectObject(memDC, op); DeleteObject(hp);
+    }
+    else if (isPresentationExt(ext)) {
+        DRAW_DOC(255,140,0, L"P");
+    }
+    else if (ext && wcsicmp(ext,L".dll")==0) {
+        // dll：灰色齿轮
+        HBRUSH hb = CreateSolidBrush(RGB(105,105,105));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(80,80,80));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        // 齿轮外圆
+        Ellipse(memDC, ix+iw*0.15, iy+ih*0.15, ix+iw*0.85, iy+ih*0.85);
+        // 齿轮齿（8个矩形）
+        for (int i = 0; i < 8; i++) {
+            double angle = i * 3.14159 / 4;
+            int tx = ix+iw/2 + (int)(iw*0.42*cos(angle)) - iw*0.08;
+            int ty = iy+ih/2 + (int)(ih*0.42*sin(angle)) - ih*0.08;
+            Rectangle(memDC, tx, ty, tx+iw*0.16, ty+ih*0.16);
+        }
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 中心孔
+        HBRUSH hb2 = CreateSolidBrush(RGB(255,255,255));
+        SelectObject(memDC, hb2);
+        Ellipse(memDC, ix+iw*0.38, iy+ih*0.38, ix+iw*0.62, iy+ih*0.62);
+        DeleteObject(hb2);
+    }
+    else if (ext && (wcsicmp(ext,L".bat")==0||wcsicmp(ext,L".cmd")==0)) {
+        // 脚本：黑色背景 + >_
+        HBRUSH hb = CreateSolidBrush(RGB(20,20,20));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(0,0,0));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/6, ih/6);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        SetBkMode(memDC, TRANSPARENT); SetTextColor(memDC, RGB(0,255,0));
+        HFONT hf = CreateFontW(ih*0.4, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY, DEFAULT_PITCH|FF_SWISS, L"Consolas");
+        HFONT of = SelectObject(memDC, hf);
+        RECT tr = {ix, iy, ix+iw, iy+ih};
+        DrawTextW(memDC, L">_", -1, &tr, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SelectObject(memDC, of); DeleteObject(hf);
+    }
+    else if (ext && wcsicmp(ext,L".reg")==0) {
+        // 注册表：暗红背景 + 立方体
+        HBRUSH hb = CreateSolidBrush(RGB(139,0,0));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(100,0,0));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/6, ih/6);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 立方体线框
+        HPEN hp2 = CreatePen(PS_SOLID, 2, RGB(255,255,255));
+        HPEN op2 = SelectObject(memDC, hp2);
+        Rectangle(memDC, ix+iw*0.25, iy+ih*0.3, ix+iw*0.65, iy+ih*0.7);
+        MoveToEx(memDC, ix+iw*0.25, iy+ih*0.3, NULL); LineTo(memDC, ix+iw*0.4, iy+ih*0.15);
+        LineTo(memDC, ix+iw*0.8, iy+ih*0.15); LineTo(memDC, ix+iw*0.65, iy+ih*0.3);
+        MoveToEx(memDC, ix+iw*0.8, iy+ih*0.15, NULL); LineTo(memDC, ix+iw*0.8, iy+ih*0.55);
+        SelectObject(memDC, op2); DeleteObject(hp2);
+    }
+    else if (isDocumentExt(ext) || ext && (wcsicmp(ext,L".txt")==0||wcsicmp(ext,L".log")==0||wcsicmp(ext,L".md")==0)) {
+        // 文本：白色纸张 + 灰色线条
+        HBRUSH hb = CreateSolidBrush(RGB(255,255,255));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(180,180,180));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        POINT pts[] = {{ix,iy},{ix+iw*0.7,iy},{ix+iw,iy+ih*0.3},{ix+iw,iy+ih},{ix,iy+ih}};
+        Polygon(memDC, pts, 5);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 文字线条
+        HPEN hp2 = CreatePen(PS_SOLID, 1, RGB(180,180,180));
+        HPEN op2 = SelectObject(memDC, hp2);
+        for (int i = 0; i < 4; i++) {
+            int ly = iy+ih*0.35 + i*ih*0.12;
+            MoveToEx(memDC, ix+iw*0.15, ly, NULL);
+            LineTo(memDC, ix+iw*0.85, ly);
+        }
+        SelectObject(memDC, op2); DeleteObject(hp2);
+    }
+    else {
+        // 其他：通用文件图标
+        HBRUSH hb = CreateSolidBrush(RGB(240,240,240));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(180,180,180));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        POINT pts[] = {{ix,iy},{ix+iw*0.7,iy},{ix+iw,iy+ih*0.3},{ix+iw,iy+ih},{ix,iy+ih}};
+        Polygon(memDC, pts, 5);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
     }
 
-    // 绘制圆角矩形背景
-    HBRUSH hBrush = CreateSolidBrush(bgColor);
-    HPEN hPen = CreatePen(PS_SOLID, 1, bgColor);
-    HBRUSH oldBrush = SelectObject(memDC, hBrush);
-    HPEN oldPen = SelectObject(memDC, hPen);
-    RoundRect(memDC, 4, 4, w-4, h-4, 8, 8);
-    SelectObject(memDC, oldBrush);
-    SelectObject(memDC, oldPen);
-    DeleteObject(hBrush);
-    DeleteObject(hPen);
-
-    // 绘制标签文字
-    SetBkMode(memDC, TRANSPARENT);
-    SetTextColor(memDC, RGB(255,255,255));
-    HFONT hFont = CreateFontW(h/3, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                               DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Arial");
-    HFONT oldFont = SelectObject(memDC, hFont);
-    RECT textR = {4, h/3, w-4, h*2/3};
-    DrawTextW(memDC, label, -1, &textR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    SelectObject(memDC, oldFont);
-    DeleteObject(hFont);
+    #undef DRAW_DOC
 
     SelectObject(memDC, oldBmp);
     DeleteDC(memDC);
@@ -1293,9 +1435,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
         }
         case NM_CUSTOMDRAW: {
             LPNMLVCUSTOMDRAW lpcd = (LPNMLVCUSTOMDRAW)nmhdr;
-            // 自绘用于报表视图和大图标视图（大图标需要多行文件名）
-
-            if (p->viewStyle != STYLE_DETAILS && p->viewStyle != STYLE_LARGE_ICON) return CDRF_DODEFAULT;
+            // 自绘用于所有视图（大图标需要多行文件名，详细信息需要自定义图标，小图标/列表需要自定义图标）
             if (lpcd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
             if (lpcd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
                 HDC hdc = lpcd->nmcd.hdc;
@@ -1328,11 +1468,13 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     // 图片文件显示缩略图，其他常见格式显示自定义图标，文件夹/exe用系统图标
                     bool useThumb = false;
                     int thumbIdx = -1;
-                    if (item->node->type == TYPE_FILE && item->path) {
+                    if (item->node->type == TYPE_FILE) {
                         wchar_t* ext = wcsrchr(item->node->name, L'.');
                         bool isExeOrLnk = ext && (wcsicmp(ext, L".exe")==0 || wcsicmp(ext, L".lnk")==0);
                         if (!isExeOrLnk && ext) {
-                            thumbIdx = getThumbnailIcon(item->path, ext, &item->modifiedTime);
+                            wchar_t filePath[MAX_PATH] = {0};
+                            getFileNodePath(item->node, filePath);
+                            thumbIdx = getThumbnailIcon(filePath, ext, &item->modifiedTime);
                             if (thumbIdx >= 0) useThumb = true;
                         }
                     }
@@ -1354,13 +1496,88 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         }
                     }
 
-                    // 绘制多行文件名（图标下方，居中，自动换行，最多3行）
+                    // 绘制多行文件名（图标下方，居中，自动换行，长单词也强制换行）
                     SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
                     SetBkMode(hdc, TRANSPARENT);
                     HGDIOBJ oldFont = SelectObject(hdc, getUIFont());
                     RECT textR = {rc.left + 6, rc.top + 56, rc.right - 6, rc.bottom - 4};
-                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK);
+                    DrawTextW(hdc, item->node->name, -1, &textR, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
                     SelectObject(hdc, oldFont);
+                    return CDRF_SKIPDEFAULT;
+                }
+
+                // 小图标视图：图标在左，文字在右
+                if (p->viewStyle == STYLE_SMALL_ICON) {
+                    if (selected || hovered) {
+                        COLORREF bgColor = selected ? GetSysColor(COLOR_HIGHLIGHT) : RGB(0,120,215);
+                        HBRUSH bgBrush = CreateSolidBrush(bgColor);
+                        RECT bgR = rc; bgR.left += 1; bgR.right -= 1; bgR.top += 1; bgR.bottom -= 1;
+                        FillRect(hdc, &bgR, bgBrush);
+                        DeleteObject(bgBrush);
+                    }
+                    // 绘制16x16自定义图标或系统图标
+                    bool useCustom = (item->node->type == TYPE_FILE);
+                    wchar_t* ext = useCustom ? wcsrchr(item->node->name, L'.') : NULL;
+                    bool isExe = ext && (wcsicmp(ext,L".exe")==0 || wcsicmp(ext,L".lnk")==0);
+                    if (useCustom && ext && !isExe) {
+                        HBITMAP hIconBmp = drawCustomIcon(ext, 16, 16);
+                        if (hIconBmp) {
+                            HDC iconDC = CreateCompatibleDC(hdc);
+                            HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
+                            BitBlt(hdc, rc.left + 2, rc.top + (rowH-16)/2, 16, 16, iconDC, 0, 0, SRCCOPY);
+                            SelectObject(iconDC, oldIcon);
+                            DeleteDC(iconDC);
+                            DeleteObject(hIconBmp);
+                        }
+                    } else {
+                        HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_SMALL);
+                        if (himl && item->icon >= 0)
+                            ImageList_Draw(himl, item->icon, hdc, rc.left + 2, rc.top + (rowH-16)/2, ILD_TRANSPARENT);
+                    }
+                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
+                    SetBkMode(hdc, TRANSPARENT);
+                    HGDIOBJ oldFont2 = SelectObject(hdc, getUIFont());
+                    RECT textR2 = {rc.left + 22, rc.top, rc.right - 2, rc.bottom};
+                    DrawTextW(hdc, item->node->name, -1, &textR2, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                    SelectObject(hdc, oldFont2);
+                    return CDRF_SKIPDEFAULT;
+                }
+
+                // 列表视图：图标在上，文字在下，多列
+                if (p->viewStyle == STYLE_LIST) {
+                    if (selected || hovered) {
+                        COLORREF bgColor = selected ? GetSysColor(COLOR_HIGHLIGHT) : RGB(0,120,215);
+                        HBRUSH bgBrush = CreateSolidBrush(bgColor);
+                        RECT bgR = rc; bgR.left += 1; bgR.right -= 1; bgR.top += 1; bgR.bottom -= 1;
+                        FillRect(hdc, &bgR, bgBrush);
+                        DeleteObject(bgBrush);
+                    }
+                    // 绘制32x32自定义图标或系统图标
+                    bool useCustom = (item->node->type == TYPE_FILE);
+                    wchar_t* ext = useCustom ? wcsrchr(item->node->name, L'.') : NULL;
+                    bool isExe = ext && (wcsicmp(ext,L".exe")==0 || wcsicmp(ext,L".lnk")==0);
+                    int iconX = rc.left + (rc.right - rc.left - 32) / 2;
+                    if (useCustom && ext && !isExe) {
+                        HBITMAP hIconBmp = drawCustomIcon(ext, 32, 32);
+                        if (hIconBmp) {
+                            HDC iconDC = CreateCompatibleDC(hdc);
+                            HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
+                            BitBlt(hdc, iconX, rc.top + 4, 32, 32, iconDC, 0, 0, SRCCOPY);
+                            SelectObject(iconDC, oldIcon);
+                            DeleteDC(iconDC);
+                            DeleteObject(hIconBmp);
+                        }
+                    } else {
+                        HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_NORMAL);
+                        if (himl && item->icon >= 0)
+                            ImageList_Draw(himl, item->icon, hdc, iconX, rc.top + 4, ILD_TRANSPARENT);
+                    }
+                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
+                    SetBkMode(hdc, TRANSPARENT);
+                    HGDIOBJ oldFont3 = SelectObject(hdc, getUIFont());
+                    RECT textR3 = {rc.left + 2, rc.top + 42, rc.right - 2, rc.bottom - 2};
+                    DrawTextW(hdc, item->node->name, -1, &textR3, DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL);
+                    SelectObject(hdc, oldFont3);
                     return CDRF_SKIPDEFAULT;
                 }
 
@@ -1400,9 +1617,30 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 int w1 = SendMessage(p->hwndList, LVM_GETCOLUMNWIDTH, 1, 0);
                 int w2 = SendMessage(p->hwndList, LVM_GETCOLUMNWIDTH, 2, 0);
 
-                HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_SMALL);
-                if (himl && item->icon >= 0) {
-                    ImageList_Draw(himl, item->icon, hdc, rc.left + 4, rc.top + (rowH - 16) / 2, ILD_TRANSPARENT);
+                // 绘制图标：非exe/lnk文件用自定义图标，其他用系统图标
+                bool useCustomIcon = false;
+                wchar_t* fileExt = NULL;
+                if (item->node->type == TYPE_FILE) {
+                    fileExt = wcsrchr(item->node->name, L'.');
+                    bool isExeOrLnk = fileExt && (wcsicmp(fileExt, L".exe")==0 || wcsicmp(fileExt, L".lnk")==0);
+                    if (!isExeOrLnk && fileExt) useCustomIcon = true;
+                }
+                if (useCustomIcon) {
+                    // 用drawCustomIcon生成16x16真正图标图案
+                    HBITMAP hIconBmp = drawCustomIcon(fileExt, 16, 16);
+                    if (hIconBmp) {
+                        HDC iconDC = CreateCompatibleDC(hdc);
+                        HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
+                        BitBlt(hdc, rc.left + 4, rc.top + (rowH - 16) / 2, 16, 16, iconDC, 0, 0, SRCCOPY);
+                        SelectObject(iconDC, oldIcon);
+                        DeleteDC(iconDC);
+                        DeleteObject(hIconBmp);
+                    }
+                } else {
+                    HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_SMALL);
+                    if (himl && item->icon >= 0) {
+                        ImageList_Draw(himl, item->icon, hdc, rc.left + 4, rc.top + (rowH - 16) / 2, ILD_TRANSPARENT);
+                    }
                 }
 
                 SetTextColor(hdc, textColor);
@@ -1835,7 +2073,7 @@ void setViewStyle(enum ViewStyle newViewStyle) {
         case STYLE_LARGE_ICON:
             wndstyle |= LVS_ICON | LVS_AUTOARRANGE;
             // 大图标视图：增大高度给多行文件名留空间
-            ListView_SetIconSpacing(p->hwndList, 130, 140);
+            ListView_SetIconSpacing(p->hwndList, 130, 160);
             break;
         case STYLE_SMALL_ICON:
             wndstyle |= LVS_SMALLICON | LVS_AUTOARRANGE;
@@ -2124,7 +2362,7 @@ void cvInitPanePaths() {
             wndstyle &= ~LVS_OWNERDATA;
             if (panes[i].viewStyle == STYLE_LARGE_ICON) {
                 wndstyle |= LVS_ICON | LVS_AUTOARRANGE;
-                ListView_SetIconSpacing(panes[i].hwndList, 130, 120);
+                ListView_SetIconSpacing(panes[i].hwndList, 130, 160);
             } else if (panes[i].viewStyle == STYLE_SMALL_ICON) {
                 wndstyle |= LVS_SMALLICON | LVS_AUTOARRANGE;
                 ListView_SetIconSpacing(panes[i].hwndList, 200, 32);
