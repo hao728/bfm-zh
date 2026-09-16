@@ -54,13 +54,27 @@ static HIMAGELIST g_hThumbImageList = NULL;
 static struct ThumbCacheEntry g_thumbCache[THUMB_CACHE_MAX];
 static int g_thumbCacheCount = 0;
 
+// 解压进度窗口
+static HWND g_hExtractProgressWnd = NULL;
+static wchar_t g_extractFileName[MAX_PATH] = {0};
+
+// exe图标缓存（解决Wine下SHGetFileInfo提取不到某些exe图标的问题）
+#define EXE_ICON_CACHE_MAX 100
+struct ExeIconCache {
+    wchar_t path[MAX_PATH];
+    HICON hIcon;
+};
+static struct ExeIconCache g_exeIconCache[EXE_ICON_CACHE_MAX];
+static int g_exeIconCacheCount = 0;
+
 // 判断文件格式
 static bool isImageExt(const wchar_t* ext) {
     if (!ext) return false;
     return (wcsicmp(ext, L".jpg")==0 || wcsicmp(ext, L".jpeg")==0 ||
             wcsicmp(ext, L".png")==0 || wcsicmp(ext, L".bmp")==0 ||
             wcsicmp(ext, L".gif")==0 || wcsicmp(ext, L".ico")==0 ||
-            wcsicmp(ext, L".webp")==0);
+            wcsicmp(ext, L".webp")==0 || wcsicmp(ext, L".tiff")==0 ||
+            wcsicmp(ext, L".tif")==0 || wcsicmp(ext, L".svg")==0);
 }
 
 static bool isAudioExt(const wchar_t* ext) {
@@ -68,7 +82,9 @@ static bool isAudioExt(const wchar_t* ext) {
     return (wcsicmp(ext, L".mp3")==0 || wcsicmp(ext, L".flac")==0 ||
             wcsicmp(ext, L".wav")==0 || wcsicmp(ext, L".ogg")==0 ||
             wcsicmp(ext, L".m4a")==0 || wcsicmp(ext, L".aac")==0 ||
-            wcsicmp(ext, L".wma")==0);
+            wcsicmp(ext, L".wma")==0 || wcsicmp(ext, L".ape")==0 ||
+            wcsicmp(ext, L".wv")==0 || wcsicmp(ext, L".opus")==0 ||
+            wcsicmp(ext, L".mid")==0 || wcsicmp(ext, L".midi")==0);
 }
 
 static bool isVideoExt(const wchar_t* ext) {
@@ -76,25 +92,45 @@ static bool isVideoExt(const wchar_t* ext) {
     return (wcsicmp(ext, L".mp4")==0 || wcsicmp(ext, L".avi")==0 ||
             wcsicmp(ext, L".mkv")==0 || wcsicmp(ext, L".wmv")==0 ||
             wcsicmp(ext, L".mov")==0 || wcsicmp(ext, L".flv")==0 ||
-            wcsicmp(ext, L".webm")==0 || wcsicmp(ext, L".m4v")==0);
+            wcsicmp(ext, L".webm")==0 || wcsicmp(ext, L".m4v")==0 ||
+            wcsicmp(ext, L".mpg")==0 || wcsicmp(ext, L".mpeg")==0 ||
+            wcsicmp(ext, L".rmvb")==0 || wcsicmp(ext, L".ts")==0 ||
+            wcsicmp(ext, L".3gp")==0);
 }
 
 static bool isDocumentExt(const wchar_t* ext) {
     if (!ext) return false;
     return (wcsicmp(ext, L".pdf")==0 || wcsicmp(ext, L".doc")==0 ||
             wcsicmp(ext, L".docx")==0 || wcsicmp(ext, L".txt")==0 ||
-            wcsicmp(ext, L".rtf")==0 || wcsicmp(ext, L".md")==0);
+            wcsicmp(ext, L".rtf")==0 || wcsicmp(ext, L".md")==0 ||
+            wcsicmp(ext, L".odt")==0 || wcsicmp(ext, L".epub")==0);
 }
 
 static bool isSpreadsheetExt(const wchar_t* ext) {
     if (!ext) return false;
     return (wcsicmp(ext, L".xls")==0 || wcsicmp(ext, L".xlsx")==0 ||
-            wcsicmp(ext, L".csv")==0);
+            wcsicmp(ext, L".csv")==0 || wcsicmp(ext, L".ods")==0);
 }
 
 static bool isPresentationExt(const wchar_t* ext) {
     if (!ext) return false;
-    return (wcsicmp(ext, L".ppt")==0 || wcsicmp(ext, L".pptx")==0);
+    return (wcsicmp(ext, L".ppt")==0 || wcsicmp(ext, L".pptx")==0 ||
+            wcsicmp(ext, L".odp")==0);
+}
+
+static bool isScriptExt(const wchar_t* ext) {
+    if (!ext) return false;
+    return (wcsicmp(ext, L".py")==0 || wcsicmp(ext, L".js")==0 ||
+            wcsicmp(ext, L".sh")==0 || wcsicmp(ext, L".vbs")==0 ||
+            wcsicmp(ext, L".ps1")==0 || wcsicmp(ext, L".lua")==0);
+}
+
+static bool isConfigExt(const wchar_t* ext) {
+    if (!ext) return false;
+    return (wcsicmp(ext, L".ini")==0 || wcsicmp(ext, L".cfg")==0 ||
+            wcsicmp(ext, L".json")==0 || wcsicmp(ext, L".xml")==0 ||
+            wcsicmp(ext, L".conf")==0 || wcsicmp(ext, L".yaml")==0 ||
+            wcsicmp(ext, L".yml")==0 || wcsicmp(ext, L".toml")==0);
 }
 
 // 用OleLoadPicturePath加载图片并生成缩略图
@@ -352,6 +388,43 @@ static HBITMAP drawCustomIcon(const wchar_t* ext, int w, int h) {
         MoveToEx(memDC, ix+iw*0.8, iy+ih*0.15, NULL); LineTo(memDC, ix+iw*0.8, iy+ih*0.55);
         SelectObject(memDC, op2); DeleteObject(hp2);
     }
+    else if (isScriptExt(ext)) {
+        // 脚本：深绿背景 + 白色</>
+        HBRUSH hb = CreateSolidBrush(RGB(20,80,40));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(15,60,30));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/6, ih/6);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        SetBkMode(memDC, TRANSPARENT); SetTextColor(memDC, RGB(255,255,255));
+        HFONT hf = CreateFontW(ih*0.45, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY, DEFAULT_PITCH|FF_SWISS, L"Consolas");
+        HFONT of = SelectObject(memDC, hf);
+        RECT tr = {ix, iy, ix+iw, iy+ih};
+        DrawTextW(memDC, L"</>", -1, &tr, DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+        SelectObject(memDC, of); DeleteObject(hf);
+    }
+    else if (isConfigExt(ext)) {
+        // 配置：深蓝灰背景 + 白色齿轮
+        HBRUSH hb = CreateSolidBrush(RGB(50,60,80));
+        HPEN hp = CreatePen(PS_SOLID, 1, RGB(40,50,70));
+        HBRUSH ob = SelectObject(memDC, hb); HPEN op = SelectObject(memDC, hp);
+        RoundRect(memDC, ix, iy, ix+iw, iy+ih, iw/6, ih/6);
+        SelectObject(memDC, ob); SelectObject(memDC, op);
+        DeleteObject(hb); DeleteObject(hp);
+        // 简化齿轮
+        HBRUSH hb2 = CreateSolidBrush(RGB(220,220,220));
+        SelectObject(memDC, hb2);
+        Ellipse(memDC, ix+iw*0.3, iy+ih*0.3, ix+iw*0.7, iy+ih*0.7);
+        for (int i = 0; i < 6; i++) {
+            double angle = i * 3.14159 / 3;
+            int tx = ix+iw/2 + (int)(iw*0.35*cos(angle)) - iw*0.06;
+            int ty = iy+ih/2 + (int)(ih*0.35*sin(angle)) - ih*0.06;
+            Rectangle(memDC, tx, ty, tx+iw*0.12, ty+ih*0.12);
+        }
+        DeleteObject(hb2);
+    }
     else if (isDocumentExt(ext) || ext && (wcsicmp(ext,L".txt")==0||wcsicmp(ext,L".log")==0||wcsicmp(ext,L".md")==0)) {
         // 文本：白色纸张 + 灰色线条
         HBRUSH hb = CreateSolidBrush(RGB(255,255,255));
@@ -456,6 +529,67 @@ static int getThumbnailIcon(const wchar_t* path, const wchar_t* ext, const FILET
 
     if (idx >= 0) addThumbCache(path, mt, idx, isCustom);
     return idx;
+}
+
+// 从exe提取图标，失败则查找同目录.ico文件（解决Wine下SHGetFileInfo提取不到某些exe图标的问题）
+static HICON getExeIconEnhanced(const wchar_t* exePath) {
+    // 查缓存
+    for (int i = 0; i < g_exeIconCacheCount; i++) {
+        if (wcscmp(g_exeIconCache[i].path, exePath) == 0) {
+            return g_exeIconCache[i].hIcon;
+        }
+    }
+    HICON hIcon = NULL;
+    // 方法1：ExtractIconEx直接从exe提取（比SHGetFileInfo更可靠）
+    UINT nIcons = ExtractIconExW(exePath, 0, NULL, NULL, 1);
+    if (nIcons > 0) {
+        HICON hLarge = NULL, hSmall = NULL;
+        if (ExtractIconExW(exePath, 0, &hLarge, &hSmall, 1) > 0) {
+            if (hLarge) hIcon = hLarge;
+            else if (hSmall) hIcon = hSmall;
+            if (hLarge && hSmall && hLarge != hSmall) DestroyIcon(hSmall);
+        }
+    }
+    // 方法2：如果exe没有图标，查找同目录下同名.ico或任意.ico
+    if (!hIcon) {
+        wchar_t dir[MAX_PATH] = {0};
+        wcscpy_s(dir, MAX_PATH, exePath);
+        wchar_t* lastSlash = wcsrchr(dir, L'\\');
+        if (lastSlash) {
+            *lastSlash = L'\0';
+            // 先试同名.ico
+            wchar_t icoPath[MAX_PATH] = {0};
+            const wchar_t* baseName = wcsrchr(exePath, L'\\');
+            baseName = baseName ? baseName + 1 : exePath;
+            wchar_t nameNoExt[MAX_PATH] = {0};
+            wcscpy_s(nameNoExt, MAX_PATH, baseName);
+            wchar_t* dot = wcsrchr(nameNoExt, L'.');
+            if (dot) *dot = L'\0';
+            swprintf_s(icoPath, MAX_PATH, L"%ls\\%ls.ico", dir, nameNoExt);
+            if (isPathExists(icoPath)) {
+                hIcon = (HICON)LoadImageW(NULL, icoPath, IMAGE_ICON, 48, 48, LR_LOADFROMFILE);
+            }
+            // 再试目录下任意.ico
+            if (!hIcon) {
+                WIN32_FIND_DATAW fd;
+                wchar_t searchPath[MAX_PATH];
+                swprintf_s(searchPath, MAX_PATH, L"%ls\\*.ico", dir);
+                HANDLE hFind = FindFirstFileW(searchPath, &fd);
+                if (hFind != INVALID_HANDLE_VALUE) {
+                    swprintf_s(icoPath, MAX_PATH, L"%ls\\%ls", dir, fd.cFileName);
+                    hIcon = (HICON)LoadImageW(NULL, icoPath, IMAGE_ICON, 48, 48, LR_LOADFROMFILE);
+                    FindClose(hFind);
+                }
+            }
+        }
+    }
+    // 存入缓存（包括NULL，表示已尝试过）
+    if (g_exeIconCacheCount < EXE_ICON_CACHE_MAX) {
+        wcscpy_s(g_exeIconCache[g_exeIconCacheCount].path, MAX_PATH, exePath);
+        g_exeIconCache[g_exeIconCacheCount].hIcon = hIcon;
+        g_exeIconCacheCount++;
+    }
+    return hIcon;
 }
 
 // 每面板状态。两个列表视图同时活动（各自触发自己的
@@ -1519,13 +1653,19 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         int iconY = rc.top + 4;
                         ImageList_Draw(g_hThumbImageList, thumbIdx, hdc, iconX, iconY, ILD_TRANSPARENT);
                     } else {
-                        // 系统图标：32x32（文件夹/exe/lnk）
-                        HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_NORMAL);
-                        if (himl) {
-                            int iconW = 32, iconH = 32;
-                            int iconX = rc.left + (rc.right - rc.left - iconW) / 2;
-                            int iconY = rc.top + 10;
-                            ImageList_Draw(himl, item->icon, hdc, iconX, iconY, ILD_TRANSPARENT);
+                        // 系统图标：文件夹/exe/lnk。exe优先用ExtractIconEx增强提取（解决Wine下图标丢失）
+                        int iconW = 32, iconH = 32;
+                        int iconX = rc.left + (rc.right - rc.left - iconW) / 2;
+                        int iconY = rc.top + 10;
+                        bool isExe = ext && wcsicmp(ext, L".exe")==0;
+                        HICON hExeIcon = isExe ? getExeIconEnhanced(filePath) : NULL;
+                        if (hExeIcon) {
+                            DrawIconEx(hdc, iconX, iconY, hExeIcon, iconW, iconH, 0, NULL, DI_NORMAL);
+                        } else {
+                            HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_NORMAL);
+                            if (himl) {
+                                ImageList_Draw(himl, item->icon, hdc, iconX, iconY, ILD_TRANSPARENT);
+                            }
                         }
                     }
 
@@ -4186,6 +4326,104 @@ static bool find7z(wchar_t* out) {
     return false;
 }
 
+// 解压进度窗口过程
+static LRESULT CALLBACK extractProgressWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            FillRect(hdc, &rc, (HBRUSH)(COLOR_WINDOW + 1));
+            // 标题
+            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+            SetBkMode(hdc, TRANSPARENT);
+            HFONT hFont = CreateFontW(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei");
+            HGDIOBJ oldFont = SelectObject(hdc, hFont);
+            RECT titleR = {10, 10, rc.right - 10, 35};
+            DrawTextW(hdc, L"正在解压...", -1, &titleR, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            // 文件名
+            HFONT hFont2 = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei");
+            SelectObject(hdc, hFont2);
+            RECT fileR = {10, 40, rc.right - 10, 70};
+            DrawTextW(hdc, g_extractFileName, -1, &fileR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            // 进度条背景
+            RECT barR = {10, 75, rc.right - 10, 95};
+            HBRUSH hBarBg = CreateSolidBrush(RGB(220,220,220));
+            FillRect(hdc, &barR, hBarBg);
+            DeleteObject(hBarBg);
+            // 进度条（动画效果，因为7z输出解析复杂，用循环动画）
+            static int progressPos = 0;
+            progressPos = (progressPos + 3) % (barR.right - barR.left - 40);
+            RECT progR = {barR.left + progressPos, barR.top + 2, barR.left + progressPos + 40, barR.bottom - 2};
+            HBRUSH hProg = CreateSolidBrush(RGB(0,120,215));
+            FillRect(hdc, &progR, hProg);
+            DeleteObject(hProg);
+            // 提示文字
+            RECT tipR = {10, 100, rc.right - 10, 125};
+            DrawTextW(hdc, L"请稍候，解压完成后窗口自动关闭", -1, &tipR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            SelectObject(hdc, oldFont);
+            DeleteObject(hFont);
+            DeleteObject(hFont2);
+            EndPaint(hwnd, &ps);
+            break;
+        }
+        case WM_TIMER:
+            InvalidateRect(hwnd, NULL, FALSE);
+            break;
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            g_hExtractProgressWnd = NULL;
+            break;
+        default:
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+static void showExtractProgress(const wchar_t* fileName) {
+    if (g_hExtractProgressWnd) return;
+    wcscpy_s(g_extractFileName, MAX_PATH, fileName);
+    // 注册窗口类
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = extractProgressWndProc;
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.lpszClassName = L"ExtractProgressWnd";
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hCursor = LoadCursor(NULL, IDC_WAIT);
+    RegisterClassW(&wc);
+    // 创建窗口
+    g_hExtractProgressWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        L"ExtractProgressWnd", L"解压进度",
+        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT, CW_USEDEFAULT, 380, 160,
+        hwndMain, NULL, GetModuleHandleW(NULL), NULL);
+    if (g_hExtractProgressWnd) {
+        // 居中到主窗口
+        RECT rcMain, rcDlg;
+        GetWindowRect(hwndMain, &rcMain);
+        GetWindowRect(g_hExtractProgressWnd, &rcDlg);
+        int x = rcMain.left + (rcMain.right - rcMain.left - (rcDlg.right - rcDlg.left)) / 2;
+        int y = rcMain.top + (rcMain.bottom - rcMain.top - (rcDlg.bottom - rcDlg.top)) / 2;
+        SetWindowPos(g_hExtractProgressWnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        ShowWindow(g_hExtractProgressWnd, SW_SHOW);
+        UpdateWindow(g_hExtractProgressWnd);
+        SetTimer(g_hExtractProgressWnd, 1, 50, NULL);
+    }
+}
+
+static void hideExtractProgress() {
+    if (g_hExtractProgressWnd) {
+        KillTimer(g_hExtractProgressWnd, 1);
+        DestroyWindow(g_hExtractProgressWnd);
+        g_hExtractProgressWnd = NULL;
+    }
+}
+
 struct ExtractArg {
     wchar_t archive[MAX_PATH];
     wchar_t outDir[MAX_PATH];
@@ -4219,14 +4457,19 @@ static void run7zExtract(const wchar_t* archive, const wchar_t* outDir) {
         MessageBoxW(hwndMain, lc_str.err_7z_missing, L"7z", MB_OK | MB_ICONERROR);
         return;
     }
+    // 显示解压进度窗口
+    const wchar_t* baseName = wcsrchr(archive, L'\\');
+    baseName = baseName ? baseName + 1 : archive;
+    showExtractProgress(baseName);
+
     struct ExtractArg* arg = (struct ExtractArg*)malloc(sizeof(struct ExtractArg));
-    if (!arg) return;
+    if (!arg) { hideExtractProgress(); return; }
     wcscpy_s(arg->archive, MAX_PATH, archive);
     wcscpy_s(arg->outDir, MAX_PATH, outDir);
     wcscpy_s(arg->exe7z, MAX_PATH, exe7z);
     HANDLE hThread = CreateThread(NULL, 0, extractThreadProc, arg, 0, NULL);
     if (hThread) CloseHandle(hThread);
-    else free(arg);
+    else { free(arg); hideExtractProgress(); }
 }
 
 static void onMenuItemExtractHereClick() {
