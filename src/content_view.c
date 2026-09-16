@@ -195,6 +195,9 @@ struct CustomIconCache {
 static struct CustomIconCache g_customIconCache[CUSTOM_ICON_CACHE_MAX];
 static int g_customIconCacheCount = 0;
 
+// 前向声明
+static HBITMAP drawCustomIcon(const wchar_t* ext, int w, int h);
+
 static HBITMAP getCachedCustomIcon(const wchar_t* ext, int w, int h) {
     if (!ext) return NULL;
     // 查找缓存
@@ -630,6 +633,9 @@ static void onMenuItemCopyPathClick();
 static void onMenuItemOpenCmdClick();
 static void onMenuItemExtractHereClick();
 static void onMenuItemExtractToFolderClick();
+static void onMenuItemTestArchiveClick();
+static void onMenuItemCompressZipClick();
+static void onMenuItemCompress7zClick();
 static bool isArchiveExt(const wchar_t* path);
 static void startFileDrag(HWND hwnd);
 static void updateSelectedItems(void);
@@ -687,6 +693,9 @@ static struct ContextMenuItem cmiCopyPath = {NULL, &onMenuItemCopyPathClick, NUL
 static struct ContextMenuItem cmiOpenCmd = {NULL, &onMenuItemOpenCmdClick, NULL};
 static struct ContextMenuItem cmiExtractHere = {NULL, &onMenuItemExtractHereClick, NULL};
 static struct ContextMenuItem cmiExtractToFolder = {NULL, &onMenuItemExtractToFolderClick, NULL};
+static struct ContextMenuItem cmiTestArchive = {NULL, &onMenuItemTestArchiveClick, NULL};
+static struct ContextMenuItem cmiCompressZip = {NULL, &onMenuItemCompressZipClick, NULL};
+static struct ContextMenuItem cmiCompress7z = {NULL, &onMenuItemCompress7zClick, NULL};
 static struct ContextMenuItem cmiNewTxt = {NULL, &onMenuItemNewTxtClick, NULL};
 static struct ContextMenuItem cmiNewBat = {NULL, &onMenuItemNewBatClick, NULL};
 static struct ContextMenuItem cmiNewReg = {NULL, &onMenuItemNewRegClick, NULL};
@@ -1485,20 +1494,28 @@ static void createContextMenu(enum ContextMenuType type) {
     int id = 0;
 
     if (type == MENU_SINGLE || type == MENU_MULTIPLE) {
+        // 压缩包操作（7z）：解压+测试（仅压缩包）/ 压缩（文件+文件夹+多选）
+        if (type == MENU_SINGLE) {
+            wchar_t apath[MAX_PATH] = {0};
+            getFileNodePath(selectedItems[0], apath);
+            bool isArchive = selectedItems[0]->type == TYPE_FILE && isArchiveExt(apath);
+            if (isArchive) {
+                addContextMenuItem(hMenu, id++, &cmiExtractHere, false);
+                addContextMenuItem(hMenu, id++, &cmiExtractToFolder, false);
+                addContextMenuItem(hMenu, id++, &cmiTestArchive, true);
+            } else {
+                addContextMenuItem(hMenu, id++, &cmiCompressZip, false);
+                addContextMenuItem(hMenu, id++, &cmiCompress7z, true);
+            }
+        } else {
+            // 多选：只显示压缩
+            addContextMenuItem(hMenu, id++, &cmiCompressZip, false);
+            addContextMenuItem(hMenu, id++, &cmiCompress7z, true);
+        }
         if (type == MENU_SINGLE) {
             if (selectedItems[0]->type == TYPE_FILE) {
                 addContextMenuItem(hMenu, id++, &cmiOpen, false);
                 addContextMenuItem(hMenu, id++, &cmiOpenAsAdmin, false);
-                // 压缩包解压（7z）。仅对识别的压缩包类型显示。
-
-                {
-                    wchar_t apath[MAX_PATH] = {0};
-                    getFileNodePath(selectedItems[0], apath);
-                    if (isArchiveExt(apath)) {
-                        addContextMenuItem(hMenu, id++, &cmiExtractHere, false);
-                        addContextMenuItem(hMenu, id++, &cmiExtractToFolder, true);
-                    }
-                }
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoost, false);
                 addContextMenuItem(hMenu, id++, &cmiLauncherBoostAggressive, false);
                 {
@@ -1657,8 +1674,14 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         int iconW = 32, iconH = 32;
                         int iconX = rc.left + (rc.right - rc.left - iconW) / 2;
                         int iconY = rc.top + 10;
-                        bool isExe = ext && wcsicmp(ext, L".exe")==0;
-                        HICON hExeIcon = isExe ? getExeIconEnhanced(filePath) : NULL;
+                        wchar_t* ext2 = wcsrchr(item->node->name, L'.');
+                        bool isExe = ext2 && wcsicmp(ext2, L".exe")==0;
+                        HICON hExeIcon = NULL;
+                        if (isExe) {
+                            wchar_t exePath[MAX_PATH] = {0};
+                            getFileNodePath(item->node, exePath);
+                            hExeIcon = getExeIconEnhanced(exePath);
+                        }
                         if (hExeIcon) {
                             DrawIconEx(hdc, iconX, iconY, hExeIcon, iconW, iconH, 0, NULL, DI_NORMAL);
                         } else {
@@ -2412,6 +2435,9 @@ static void initContextMenuTexts(void) {
     cmiOpenCmd.text = lc_str.open_cmd;
     cmiExtractHere.text = lc_str.extract_here;
     cmiExtractToFolder.text = lc_str.extract_to_folder;
+    cmiTestArchive.text = lc_str.test_archive;
+    cmiCompressZip.text = lc_str.compress_zip;
+    cmiCompress7z.text = lc_str.compress_7z;
     cmiNewTxt.text = lc_str.new_txt;
     cmiNewBat.text = lc_str.new_bat;
     cmiNewReg.text = lc_str.new_reg;
@@ -4503,6 +4529,100 @@ static void onMenuItemExtractToFolderClick() {
     wcscat_s(folder, MAX_PATH, nameNoExt);
     run7zExtract(archive, folder);
 }
+
+// 通用7z命令执行（带进度窗口）
+struct SevenZipArg {
+    wchar_t exe7z[MAX_PATH];
+    wchar_t cmdLine[MAX_PATH * 4];
+    wchar_t displayName[MAX_PATH];
+};
+
+static DWORD WINAPI sevenZipThreadProc(LPVOID param) {
+    struct SevenZipArg* arg = (struct SevenZipArg*)param;
+    STARTUPINFOW si = {0};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi = {0};
+    if (CreateProcessW(arg->exe7z, arg->cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hProcess);
+    }
+    free(arg);
+    PostMessageW(hwndMain, WM_USER_EXTRACT_DONE, 0, 0);
+    return 0;
+}
+
+static void run7zCommand(const wchar_t* cmdArgs, const wchar_t* displayName) {
+    wchar_t exe7z[MAX_PATH] = {0};
+    if (!find7z(exe7z)) {
+        MessageBoxW(hwndMain, lc_str.err_7z_missing, L"7z", MB_OK | MB_ICONERROR);
+        return;
+    }
+    showExtractProgress(displayName);
+    struct SevenZipArg* arg = (struct SevenZipArg*)malloc(sizeof(struct SevenZipArg));
+    if (!arg) { hideExtractProgress(); return; }
+    wcscpy_s(arg->exe7z, MAX_PATH, exe7z);
+    swprintf_s(arg->cmdLine, _countof(arg->cmdLine), L"\"%ls\" %ls", exe7z, cmdArgs);
+    wcscpy_s(arg->displayName, MAX_PATH, displayName);
+    HANDLE hThread = CreateThread(NULL, 0, sevenZipThreadProc, arg, 0, NULL);
+    if (hThread) CloseHandle(hThread);
+    else { free(arg); hideExtractProgress(); }
+}
+
+// 测试压缩包完整性
+static void onMenuItemTestArchiveClick() {
+    if (numSelectedItems != 1 || selectedItems[0]->type != TYPE_FILE) return;
+    wchar_t archive[MAX_PATH] = {0};
+    getFileNodePath(selectedItems[0], archive);
+    wchar_t cmdArgs[MAX_PATH * 2];
+    swprintf_s(cmdArgs, _countof(cmdArgs), L"t -y \"%ls\"", archive);
+    const wchar_t* base = wcsrchr(archive, L'\\');
+    base = base ? base + 1 : archive;
+    wchar_t display[MAX_PATH];
+    swprintf_s(display, MAX_PATH, L"测试完整性：%ls", base);
+    run7zCommand(cmdArgs, display);
+}
+
+// 压缩为ZIP
+static void compressToArchive(const wchar_t* format) {
+    if (numSelectedItems < 1) return;
+    if (!currPathFileNode) return;
+    wchar_t curDir[MAX_PATH] = {0};
+    getFileNodePath(currPathFileNode, curDir);
+    // 输出压缩包名：当前目录\第一个选中项名.格式
+    wchar_t baseName[MAX_PATH] = {0};
+    if (numSelectedItems == 1) {
+        const wchar_t* base = wcsrchr(selectedItems[0]->name, L'\\');
+        base = base ? base + 1 : selectedItems[0]->name;
+        wcscpy_s(baseName, MAX_PATH, base);
+        wchar_t* dot = wcsrchr(baseName, L'.');
+        if (dot) *dot = L'\0';
+    } else {
+        wcscpy_s(baseName, MAX_PATH, L"archive");
+    }
+    wchar_t outArchive[MAX_PATH];
+    swprintf_s(outArchive, MAX_PATH, L"%ls\\%ls.%ls", curDir, baseName, format);
+    // 构建文件列表参数
+    wchar_t fileList[MAX_PATH * 8] = {0};
+    for (int i = 0; i < numSelectedItems; i++) {
+        wchar_t fpath[MAX_PATH] = {0};
+        getFileNodePath(selectedItems[i], fpath);
+        if (i > 0) wcscat_s(fileList, _countof(fileList), L" ");
+        wchar_t quoted[MAX_PATH + 4];
+        swprintf_s(quoted, _countof(quoted), L"\"%ls\"", fpath);
+        wcscat_s(fileList, _countof(fileList), quoted);
+    }
+    wchar_t cmdArgs[MAX_PATH * 10];
+    swprintf_s(cmdArgs, _countof(cmdArgs), L"a -t%ls -y \"%ls\" %ls", format, outArchive, fileList);
+    wchar_t display[MAX_PATH];
+    swprintf_s(display, MAX_PATH, L"压缩为 %ls：%ls.%ls", format, baseName, format);
+    run7zCommand(cmdArgs, display);
+}
+
+static void onMenuItemCompressZipClick() { compressToArchive(L"zip"); }
+static void onMenuItemCompress7zClick() { compressToArchive(L"7z"); }
 
 
 // ============================================================================

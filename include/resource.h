@@ -264,6 +264,9 @@ struct LC_STR {
     wchar_t* preview_pane;
     wchar_t* extract_here;
     wchar_t* extract_to_folder;
+    wchar_t* test_archive;
+    wchar_t* compress_zip;
+    wchar_t* compress_7z;
     wchar_t* shared_storage;
     wchar_t* diff_files;
     // 双模式加速 + 启动参数（Wine 环境变量覆盖）

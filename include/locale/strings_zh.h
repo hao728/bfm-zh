@@ -136,6 +136,9 @@ static inline void loadStrings_zh() {
     lc_str.preview_pane = L"\u9884\u89c8\u7a97\u683c";
     lc_str.extract_here = L"\u89e3\u538b\u5230\u5f53\u524d\u6587\u4ef6\u5939";
     lc_str.extract_to_folder = L"\u89e3\u538b\u5230\u540c\u540d\u6587\u4ef6\u5939";
+    lc_str.test_archive = L"\u6d4b\u8bd5\u538b\u7f29\u5305\u5b8c\u6574\u6027";
+    lc_str.compress_zip = L"\u538b\u7f29\u4e3a ZIP";
+    lc_str.compress_7z = L"\u538b\u7f29\u4e3a 7Z";
     lc_str.shared_storage = L"\u5171\u4eab\u5b58\u50a8";
     lc_str.diff_files = L"\u6bd4\u8f83\u6587\u4ef6";
     lc_str.launcher_boost_aggressive = L"激进加速运行";
