@@ -29,6 +29,7 @@ int cvActiveIdx();
 bool cvSplitOn();
 void cvToggleMemoryDisplay(void);
 bool cvMemoryVisible(void);
+bool showConfirmDialog(HWND parent, const wchar_t* title, const wchar_t* msg);
 
 void onMenuItemUpClick();
 void onMenuItemOpenClick();
