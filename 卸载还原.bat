@@ -8,17 +8,19 @@ echo   BFM 中文美化版 - 卸载还原程序
 echo ============================================
 echo.
 
-set "TARGET_DIR=C:\Program Files\Winlator\WFM"
+:: WFM 正确部署位置：C:\windows\wfm.exe
+set "TARGET_DIR=C:\windows"
 
 :: 查找WFM目录
 if not exist "%TARGET_DIR%\wfm.exe.bak_zh" (
     for %%d in (C D E F G H) do (
-        if exist "%%d:\Program Files\Winlator\WFM\wfm.exe.bak_zh" (
-            set "TARGET_DIR=%%d:\Program Files\Winlator\WFM"
+        if exist "%%d:\windows\wfm.exe.bak_zh" (
+            set "TARGET_DIR=%%d:\windows"
             goto :found
         )
     )
     echo [错误] 未找到备份文件，可能未安装过汉化版
+    echo        正确位置应为 C:\windows\wfm.exe
     pause
     exit /b 1
 )

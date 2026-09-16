@@ -138,7 +138,7 @@ INT_PTR CALLBACK FileActionDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPA
         }
         case WM_COMMAND: {
             if (LOWORD(wParam) == IDCANCEL) {
-                if (MessageBox(hwndDlg, lc_str.msg_cancel_file_operation, lc_str.cancel, MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                if (showConfirmDialog(hwndDlg, lc_str.cancel, lc_str.msg_cancel_file_operation)) {
                     actionData->cancel = true;
                 }
             }
@@ -477,7 +477,7 @@ void deleteFiles(struct FileNode** nodes, int count) {
     }
     else swprintf_s(msg, 128, lc_str.msg_confirm_delete_multiple_items, count);
 
-    if (MessageBox(NULL, msg, lc_str.confirm_delete, MB_YESNO | MB_ICONQUESTION) == IDYES) {
+    if (showConfirmDialog(hwndMain, lc_str.confirm_delete, msg)) {
         actionData = calloc(1, sizeof(struct ActionData));
         
         actionData->srcPaths = createPathsFromFileNodes(nodes, count);

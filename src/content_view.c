@@ -2842,6 +2842,36 @@ void onMenuItemPropertiesClick() {
     DialogBox(globalHInstance, MAKEINTRESOURCE(IDD_PROPERTIES), hwndMain, &PropertiesDialogProc);
 }
 
+// 中文确认对话框进程：替代系统 MessageBox 的 Yes/No（系统按钮语言由容器决定）
+static INT_PTR CALLBACK ConfirmDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_INITDIALOG: {
+            const wchar_t* confirmMsg = (const wchar_t*)lParam;
+            SetWindowText(hwndDlg, L"确认");
+            SetWindowText(GetDlgItem(hwndDlg, IDC_CONFIRM_MSG), confirmMsg ? confirmMsg : L"");
+            SetWindowText(GetDlgItem(hwndDlg, IDYES), L"是(Y)");
+            SetWindowText(GetDlgItem(hwndDlg, IDNO), L"否(N)");
+            return (INT_PTR)TRUE;
+        }
+        case WM_COMMAND: {
+            if (LOWORD(wParam) == IDYES || LOWORD(wParam) == IDNO) {
+                EndDialog(hwndDlg, LOWORD(wParam));
+                return (INT_PTR)TRUE;
+            }
+            break;
+        }
+        case WM_CLOSE:
+            EndDialog(hwndDlg, IDNO);
+            return (INT_PTR)TRUE;
+    }
+    return (INT_PTR)FALSE;
+}
+
+// 通用中文确认框：返回 true 表示用户点了"是"
+bool showConfirmDialog(HWND parent, const wchar_t* title, const wchar_t* msg) {
+    return DialogBoxParam(globalHInstance, MAKEINTRESOURCE(IDD_CONFIRM), parent, &ConfirmDialogProc, (LPARAM)msg) == IDYES;
+}
+
 void onMenuItemOpenAsAdminClick() {
     if (numSelectedItems == 1 && selectedItems[0]->type == TYPE_FILE) {
         wchar_t path[MAX_PATH] = {0};
@@ -3021,7 +3051,7 @@ static LRESULT CALLBACK faManagerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                     MessageBoxW(hwnd, L"请先选择要删除的文件类型", L"提示", MB_OK | MB_ICONINFORMATION);
                     break;
                 }
-                if (MessageBoxW(hwnd, L"确定要删除该文件类型的关联吗？", L"确认", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                if (showConfirmDialog(hwnd, L"确认", L"确定要删除该文件类型的关联吗？")) {
                     faRemoveAssociation(s->selectedExt);
                     s->selectedExt[0] = L'\0';
                     SetWindowTextW(s->hwndPathLabel, L"");
@@ -3157,7 +3187,7 @@ void onMenuItemOpenWithClick() {
                 exeName = exeName ? exeName + 1 : exePath;
                 wchar_t msg[512];
                 swprintf_s(msg, 512, L"是否始终用 %ls 打开 %ls 类型的文件？\n\n（关联仅在 BFM 内部生效，不修改系统全局设置）", exeName, fileExt);
-                if (MessageBoxW(hwndMain, msg, L"设置默认打开方式", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                if (showConfirmDialog(hwndMain, L"设置默认打开方式", msg)) {
                     if (faSetAssociation(fileExt, exePath)) {
                         MessageBoxW(hwndMain, L"文件关联已保存", L"成功", MB_OK | MB_ICONINFORMATION);
                     }

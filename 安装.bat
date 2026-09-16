@@ -10,18 +10,20 @@ echo.
 
 :: 获取脚本所在目录
 set "SCRIPT_DIR=%~dp0"
-set "TARGET_DIR=C:\Program Files\Winlator\WFM"
+:: WFM 正确部署位置：C:\windows\wfm.exe（上游 README 指定，保持 Bannerlator 启动路径不变）
+set "TARGET_DIR=C:\windows"
 
 :: 如果目标目录不存在，尝试查找WFM
 if not exist "%TARGET_DIR%\wfm.exe" (
     echo [信息] 未在默认目录找到 WFM，正在搜索...
     for %%d in (C D E F G H) do (
-        if exist "%%d:\Program Files\Winlator\WFM\wfm.exe" (
-            set "TARGET_DIR=%%d:\Program Files\Winlator\WFM"
+        if exist "%%d:\windows\wfm.exe" (
+            set "TARGET_DIR=%%d:\windows"
             goto :found
         )
     )
     echo [错误] 未找到 WFM 安装目录，请确认 Winlator 已安装
+    echo        正确位置应为 C:\windows\wfm.exe
     pause
     exit /b 1
 )

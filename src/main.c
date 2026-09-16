@@ -1403,7 +1403,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
         case WM_CLOSE: {
-            if (MessageBox(NULL, lc_str.msg_confirm_exit_app, lc_str.confirm_exit, MB_YESNO | MB_ICONQUESTION) == IDYES) {
+            if (showConfirmDialog(NULL, lc_str.confirm_exit, lc_str.msg_confirm_exit_app)) {
                 PostQuitMessage(0);
             }
             return 0;
@@ -1550,8 +1550,8 @@ static void createMainMenu() {
     AppendMenu(hmNav, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmNav, MF_STRING, ID_NAV_RECENT, lc_str.recent_places);
     AppendMenu(hmNav, MF_SEPARATOR, 0, NULL);
-    AppendMenu(hmNav, MF_STRING, ID_TAB_NEW, L"Ctrl+T  New Tab");
-    AppendMenu(hmNav, MF_STRING, ID_TAB_CLOSE, L"Ctrl+W  Close Tab");
+    AppendMenu(hmNav, MF_STRING, ID_TAB_NEW, L"Ctrl+T  新建标签页");
+    AppendMenu(hmNav, MF_STRING, ID_TAB_CLOSE, L"Ctrl+W  关闭标签页");
 
     HMENU hmTools = CreatePopupMenu();
     AppendMenu(hmTools, MF_STRING, ID_TOOL_NOTEPAD, lc_str.tool_notepad);
@@ -1562,8 +1562,8 @@ static void createMainMenu() {
     HMENU hmLang = CreatePopupMenu();
     AppendMenu(hmLang, MF_STRING, ID_LANG_EN, L"English");
     AppendMenu(hmLang, MF_STRING, ID_LANG_ZH, L"\u4e2d\u6587");
-    AppendMenu(hmLang, MF_STRING, ID_LANG_PT, L"Portugues");
-    AppendMenu(hmLang, MF_STRING, ID_LANG_RU, L"Russian");
+    AppendMenu(hmLang, MF_STRING, ID_LANG_PT, L"Portugu\u00eas");
+    AppendMenu(hmLang, MF_STRING, ID_LANG_RU, L"\u0420\u0443\u0441\u0441\u043a\u0438\u0439");
 
     HMENU hmHelp = CreatePopupMenu();
     AppendMenu(hmHelp, MF_STRING, ID_HELP_ABOUT, lc_str.about);
