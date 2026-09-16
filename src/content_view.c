@@ -1353,7 +1353,7 @@ LRESULT CALLBACK ContentViewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     struct Pane* p = paneFromHwnd(hwnd);
                     if (p && ht.iItem >= 0 && ht.iItem < p->numItems) {
                         struct ListItem* item = &p->items[ht.iItem];
-                        if (item->node->type == TYPE_FOLDER) {
+                        if (item->node->type == TYPE_DIR) {
                             onFolder = true;
                             getFileNodePath(item->node, folderPath);
                         }
@@ -5006,6 +5006,9 @@ static DWORD WINAPI extractThreadProc(LPVOID param) {
     return 0;
 }
 
+// 7z操作名全局变量（定义在下方，run7zExtract需提前引用）
+wchar_t g_sevenZipLastOpName[MAX_PATH] = {0};
+
 static void run7zExtract(const wchar_t* archive, const wchar_t* outDir) {
     wchar_t exe7z[MAX_PATH] = {0};
     if (!find7z(exe7z)) {
@@ -5064,8 +5067,6 @@ static void onMenuItemExtractToFolderClick() {
 }
 
 // 通用7z命令执行（带进度窗口）
-wchar_t g_sevenZipLastOpName[MAX_PATH] = {0};
-
 struct SevenZipArg {
     wchar_t exe7z[MAX_PATH];
     wchar_t cmdLine[MAX_PATH * 4];
