@@ -149,6 +149,39 @@ static HBITMAP loadImageThumbnail(const wchar_t* path, int thumbW, int thumbH) {
 
 // 绘制自定义图标（音乐/视频/压缩包/文档等）
 // 绘制真正的文件类型图标（用GDI绘制图案，非纯色方块）
+// 自定义图标缓存（按扩展名+尺寸缓存，避免每次绘制重复生成HBITMAP导致卡顿）
+#define CUSTOM_ICON_CACHE_MAX 64
+struct CustomIconCache {
+    wchar_t ext[16];
+    int w, h;
+    HBITMAP hBmp;
+};
+static struct CustomIconCache g_customIconCache[CUSTOM_ICON_CACHE_MAX];
+static int g_customIconCacheCount = 0;
+
+static HBITMAP getCachedCustomIcon(const wchar_t* ext, int w, int h) {
+    if (!ext) return NULL;
+    // 查找缓存
+    for (int i = 0; i < g_customIconCacheCount; i++) {
+        if (g_customIconCache[i].w == w && g_customIconCache[i].h == h &&
+            wcsicmp(g_customIconCache[i].ext, ext) == 0) {
+            return g_customIconCache[i].hBmp;
+        }
+    }
+    // 缓存未命中，生成新图标
+    if (g_customIconCacheCount >= CUSTOM_ICON_CACHE_MAX) return NULL;
+    HBITMAP hBmp = drawCustomIcon(ext, w, h);
+    if (hBmp) {
+        wcsncpy(g_customIconCache[g_customIconCacheCount].ext, ext, 15);
+        g_customIconCache[g_customIconCacheCount].ext[15] = 0;
+        g_customIconCache[g_customIconCacheCount].w = w;
+        g_customIconCache[g_customIconCacheCount].h = h;
+        g_customIconCache[g_customIconCacheCount].hBmp = hBmp;
+        g_customIconCacheCount++;
+    }
+    return hBmp;
+}
+
 static HBITMAP drawCustomIcon(const wchar_t* ext, int w, int h) {
     HDC memDC = CreateCompatibleDC(NULL);
     HBITMAP hBmp = CreateCompatibleBitmap(GetDC(NULL), w, h);
@@ -409,7 +442,7 @@ static int getThumbnailIcon(const wchar_t* path, const wchar_t* ext, const FILET
 
     if (!hBmp) {
         // 非图片或加载失败：用自定义图标
-        hBmp = drawCustomIcon(ext, THUMB_SIZE, THUMB_SIZE);
+        hBmp = getCachedCustomIcon(ext, THUMB_SIZE, THUMB_SIZE);
         isCustom = true;
     }
 
@@ -1520,7 +1553,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     wchar_t* ext = useCustom ? wcsrchr(item->node->name, L'.') : NULL;
                     bool isExe = ext && (wcsicmp(ext,L".exe")==0 || wcsicmp(ext,L".lnk")==0);
                     if (useCustom && ext && !isExe) {
-                        HBITMAP hIconBmp = drawCustomIcon(ext, 16, 16);
+                        HBITMAP hIconBmp = getCachedCustomIcon(ext, 16, 16);
                         if (hIconBmp) {
                             HDC iconDC = CreateCompatibleDC(hdc);
                             HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
@@ -1558,7 +1591,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     bool isExe = ext && (wcsicmp(ext,L".exe")==0 || wcsicmp(ext,L".lnk")==0);
                     int iconX = rc.left + (rc.right - rc.left - 32) / 2;
                     if (useCustom && ext && !isExe) {
-                        HBITMAP hIconBmp = drawCustomIcon(ext, 32, 32);
+                        HBITMAP hIconBmp = getCachedCustomIcon(ext, 32, 32);
                         if (hIconBmp) {
                             HDC iconDC = CreateCompatibleDC(hdc);
                             HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
@@ -1627,7 +1660,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 }
                 if (useCustomIcon) {
                     // 用drawCustomIcon生成16x16真正图标图案
-                    HBITMAP hIconBmp = drawCustomIcon(fileExt, 16, 16);
+                    HBITMAP hIconBmp = getCachedCustomIcon(fileExt, 16, 16);
                     if (hIconBmp) {
                         HDC iconDC = CreateCompatibleDC(hdc);
                         HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
