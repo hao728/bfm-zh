@@ -694,6 +694,16 @@ static void applyThemeAndRefresh(void) {
     createMainMenu();
     // 刷新内容区（主题颜色变化）
     cvRefreshLanguage();
+    // 更新 TreeView 背景和文字颜色（静态设置，切换主题后需重新赋值）
+    if (hwndTreeview) {
+        TreeView_SetBkColor(hwndTreeview, themeFieldBg());
+        TreeView_SetTextColor(hwndTreeview, themeFieldText());
+        RedrawWindow(hwndTreeview, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    }
+    // 强制工具栏重绘（WM_ERASEBKGND 重画主题色背景）
+    if (hwndToolbar) {
+        RedrawWindow(hwndToolbar, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    }
     // 重绘标题栏、工具栏、状态栏、导航栏
     InvalidateRect(hwndMain, NULL, TRUE);
     DrawMenuBar(hwndMain);

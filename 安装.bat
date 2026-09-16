@@ -1,9 +1,10 @@
 @echo off
-title BFM ÖÐÎÄÃÀ»¯°æ - °²×°³ÌÐò
+chcp 65001 >nul
+title BFM ä¸­æ–‡ç¾ŽåŒ–ç‰ˆ - å®‰è£…ç¨‹åº
 setlocal enabledelayedexpansion
 
 echo ============================================
-echo   BFM ÖÐÎÄÃÀ»¯°æ v1.2.1-zh.3 °²×°³ÌÐò
+echo   BFM ä¸­æ–‡ç¾ŽåŒ–ç‰ˆ v1.2.1-zh.3 å®‰è£…ç¨‹åº
 echo ============================================
 echo.
 
@@ -11,22 +12,22 @@ set "SCRIPT_DIR=%~dp0"
 set "TARGET_DIR=C:\windows"
 
 if not exist "%TARGET_DIR%\wfm.exe" (
-    echo [ÐÅÏ¢] Î´ÔÚÄ¬ÈÏÄ¿Â¼ÕÒµ½ WFM£¬ÕýÔÚËÑË÷...
+    echo [Info] WFM not found, searching...
     for %%d in (C D E F G H) do (
         if exist "%%d:\windows\wfm.exe" (
             set "TARGET_DIR=%%d:\windows"
             goto :found
         )
     )
-    echo [´íÎó] Î´ÕÒµ½ WFM °²×°Ä¿Â¼
+    echo [Error] WFM not found
     pause
     exit /b 1
 )
 :found
-echo [ÐÅÏ¢] Ä¿±êÄ¿Â¼: %TARGET_DIR%
+echo [Info] Target: %TARGET_DIR%
 echo.
 
-echo [0/5] ½áÊø WFM ½ø³Ì...
+echo [0/5] Closing WFM...
 taskkill /f /im wfm.exe >nul 2>&1
 set "WAIT_COUNT=0"
 :wait_exit
@@ -34,7 +35,7 @@ tasklist /fi "imagename eq wfm.exe" 2>nul | findstr /i "wfm.exe" >nul
 if errorlevel 1 goto :proc_killed
 set /a WAIT_COUNT+=1
 if %WAIT_COUNT% geq 10 (
-    echo [´íÎó] ÎÞ·¨½áÊø WFM ½ø³Ì£¬ÇëÊÖ¶¯¹Ø±Õºó°´ÈÎÒâ¼üÖØÊÔ
+    echo [Error] Cannot close WFM, close manually then press any key
     pause >nul
     taskkill /f /im wfm.exe >nul 2>&1
     set "WAIT_COUNT=0"
@@ -42,79 +43,79 @@ if %WAIT_COUNT% geq 10 (
 ping -n 2 127.0.0.1 >nul
 goto :wait_exit
 :proc_killed
-echo       WFM ½ø³ÌÒÑ½áÊø
+echo       WFM closed
 echo.
 
 if exist "%TARGET_DIR%\wfm.exe.bak_zh" (
-    echo [¾¯¸æ] ÒÑ´æÔÚ±¸·ÝÎÄ¼þ£¬ÈçÐèÖØÐÂ°²×°ÇëÏÈÔËÐÐÐ¶ÔØ»¹Ô­.bat
-    choice /c YN /m "ÊÇ·ñ¼ÌÐø¸²¸Ç°²×°?"
+    echo [Warning] Backup exists, reinstall overwrites
+    choice /c YN /m "Continue?"
     if errorlevel 2 (
-        echo °²×°ÒÑÈ¡Ïû
+        echo Cancelled
         pause
         exit /b 0
     )
 )
 
-echo [1/5] ±¸·ÝÔ­°æÎÄ¼þ...
+echo [1/5] Backing up original...
 if not exist "%TARGET_DIR%\wfm.exe.bak_zh" (
     copy /y "%TARGET_DIR%\wfm.exe" "%TARGET_DIR%\wfm.exe.bak_zh" >nul
-    echo       ÒÑ±¸·Ý wfm.exe
+    echo       wfm.exe backed up
 )
 if exist "%TARGET_DIR%\libcdio.dll" (
     if not exist "%TARGET_DIR%\libcdio.dll.bak_zh" (
         copy /y "%TARGET_DIR%\libcdio.dll" "%TARGET_DIR%\libcdio.dll.bak_zh" >nul
-        echo       ÒÑ±¸·Ý libcdio.dll
+        echo       libcdio.dll backed up
     )
 )
 echo.
 
-echo [2/5] ¼ì²é 7-Zip »·¾³...
+echo [2/5] Checking 7-Zip...
 set "SEVENZIP_DIR=Z:\opt\apps\7-Zip"
 if exist "%SEVENZIP_DIR%\7z.exe" (
-    echo       7-Zip ÒÑ´æÔÚ
+    echo       7-Zip found
 ) else if exist "%SCRIPT_DIR%7z*.exe" (
-    echo       ¼ì²âµ½ 7-Zip °²×°°ü£¬ÕýÔÚ¾²Ä¬°²×°...
+    echo       Installing 7-Zip...
     for %%f in ("%SCRIPT_DIR%7z*.exe") do "%%f" /S /D="%SEVENZIP_DIR%" >nul 2>&1
-    echo       7-Zip ÒÑ°²×°
+    echo       7-Zip installed
 ) else (
-    echo       [ÌáÊ¾] Î´ÕÒµ½ 7-Zip£¬½âÑ¹¹¦ÄÜ½«²»¿ÉÓÃ
+    echo       [Notice] 7-Zip not found
 )
 echo.
 
-echo [3/5] °²×°ºº»¯°æÎÄ¼þ...
+echo [3/5] Installing files...
 for %%A in ("%SCRIPT_DIR%wfm.exe") do set "SRC_SIZE=%%~zA"
 copy /y "%SCRIPT_DIR%wfm.exe" "%TARGET_DIR%\wfm.exe" >nul
 for %%A in ("%TARGET_DIR%\wfm.exe") do set "DST_SIZE=%%~zA"
 if not "%SRC_SIZE%"=="%DST_SIZE%" (
-    echo [´íÎó] wfm.exe ¸´ÖÆÊ§°Ü£¬ÇëÈ·ÈÏ WFM ÒÑÍêÈ«¹Ø±Õ
+    echo [Error] wfm.exe copy failed
     pause
     exit /b 1
 )
-echo       ÒÑ¸´ÖÆ wfm.exe (%SRC_SIZE% ×Ö½Ú)
+echo       wfm.exe copied (%SRC_SIZE% bytes)
 
 if exist "%SCRIPT_DIR%libcdio.dll" (
     for %%A in ("%SCRIPT_DIR%libcdio.dll") do set "SRC2=%%~zA"
     copy /y "%SCRIPT_DIR%libcdio.dll" "%TARGET_DIR%\libcdio.dll" >nul
     for %%A in ("%TARGET_DIR%\libcdio.dll") do set "DST2=%%~zA"
-    if "!SRC2!"=="!DST2!" echo       ÒÑ¸´ÖÆ libcdio.dll (!SRC2! ×Ö½Ú)
-    if not "!SRC2!"=="!DST2!" echo       [¾¯¸æ] libcdio.dll ¸´ÖÆÊ§°Ü
+    if "!SRC2!"=="!DST2!" echo       libcdio.dll copied (!SRC2! bytes)
+    if not "!SRC2!"=="!DST2!" echo       [Warning] libcdio.dll copy failed
 )
 echo.
 
-echo [4/5] Æô¶¯ WFM...
+echo [4/5] Starting WFM...
 start "" "%TARGET_DIR%\wfm.exe"
 echo.
 
-echo [5/5] °²×°Íê³ÉÑéÖ¤...
+echo [5/5] Verifying...
 ping -n 3 127.0.0.1 >nul
 if exist "%TARGET_DIR%\wfm.exe" (
-    echo       ÑéÖ¤Í¨¹ý
+    echo       Verified
 ) else (
-    echo       [¾¯¸æ] Î´ÕÒµ½ wfm.exe
+    echo       [Warning] wfm.exe not found
 )
 echo.
 echo ============================================
-echo   °²×°Íê³É!
+echo   Install complete!
 echo ============================================
 timeout /t 3 /nobreak >nul
 exit /b 0

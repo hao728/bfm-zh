@@ -370,6 +370,16 @@ static WNDPROC OrigTreeviewProc = NULL;
 
 static LRESULT CALLBACK TreeviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (themeScrollbarsHookBefore(hwnd, msg, wParam)) return 0;
+    // Wine 下 TreeView_SetBkColor 可能不生效，用 WM_ERASEBKGND 强制画主题色背景
+    if (msg == WM_ERASEBKGND) {
+        HDC hdc = (HDC)wParam;
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        HBRUSH brush = CreateSolidBrush(themeFieldBg());
+        FillRect(hdc, &rc, brush);
+        DeleteObject(brush);
+        return 1;
+    }
     LRESULT result = CallWindowProc(OrigTreeviewProc, hwnd, msg, wParam, lParam);
     themeScrollbarsHookAfter(hwnd, msg);
     return result;
@@ -379,6 +389,9 @@ void createTreeview() {
     hwndTreeview = CreateWindowEx(0, WC_TREEVIEW, NULL, WS_VISIBLE | WS_CHILD | WS_CLIPSIBLINGS | WS_BORDER | TVS_HASLINES | TVS_LINESATROOT | TVS_HASBUTTONS |                              TVS_SHOWSELALWAYS, 0, 0, 0, 0, hwndMain, (HMENU)NULL, globalHInstance, NULL);
 
     SendMessage(hwndTreeview, WM_SETFONT, (WPARAM)getUIFont(), TRUE);
+    // 深色主题：设置 TreeView 背景和文字颜色（默认是白底黑字）
+    TreeView_SetBkColor(hwndTreeview, themeFieldBg());
+    TreeView_SetTextColor(hwndTreeview, themeFieldText());
     OrigTreeviewProc = (WNDPROC)SetWindowLongPtr(hwndTreeview, GWLP_WNDPROC, (LONG_PTR)TreeviewWndProc);
 
     updateTreeItems();
