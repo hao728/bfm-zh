@@ -1,17 +1,14 @@
 @echo off
-chcp 65001 >nul
-title BFM ä¸­æ–‡ç¾ŽåŒ–ç‰ˆ - å¸è½½è¿˜åŽŸ
+title BFM ÖÐÎÄÃÀ»¯°æ - Ð¶ÔØ»¹Ô­
 setlocal enabledelayedexpansion
 
 echo ============================================
-echo   BFM ä¸­æ–‡ç¾ŽåŒ–ç‰ˆ - å¸è½½è¿˜åŽŸç¨‹åº
+echo   BFM ÖÐÎÄÃÀ»¯°æ - Ð¶ÔØ»¹Ô­³ÌÐò
 echo ============================================
 echo.
 
-rem WFM éƒ¨ç½²ä½ç½®: C:\windows\wfm.exe
 set "TARGET_DIR=C:\windows"
 
-rem æŸ¥æ‰¾WFMç›®å½•
 if not exist "%TARGET_DIR%\wfm.exe.bak_zh" (
     for %%d in (C D E F G H) do (
         if exist "%%d:\windows\wfm.exe.bak_zh" (
@@ -19,72 +16,63 @@ if not exist "%TARGET_DIR%\wfm.exe.bak_zh" (
             goto :found
         )
     )
-    echo [é”™è¯¯] æœªæ‰¾åˆ°å¤‡ä»½æ–‡ä»¶ï¼Œå¯èƒ½æœªå®‰è£…è¿‡æ±‰åŒ–ç‰ˆ
-    echo        æ­£ç¡®ä½ç½®åº”ä¸º C:\windows\wfm.exe
+    echo [´íÎó] Î´ÕÒµ½±¸·ÝÎÄ¼þ£¬¿ÉÄÜÎ´°²×°¹ýºº»¯°æ
     pause
     exit /b 1
 )
 :found
-echo [ä¿¡æ¯] ç›®æ ‡ç›®å½•: %TARGET_DIR%
+echo [ÐÅÏ¢] Ä¿±êÄ¿Â¼: %TARGET_DIR%
 echo.
 
-choice /c YN /m "ç¡®è®¤è¿˜åŽŸä¸ºåŽŸç‰ˆ WFM?"
+choice /c YN /m "È·ÈÏ»¹Ô­ÎªÔ­°æ WFM?"
 if errorlevel 2 (
-    echo å·²å–æ¶ˆ
+    echo ÒÑÈ¡Ïû
     pause
     exit /b 0
 )
 
 echo.
-rem ç»“æŸ WFM è¿›ç¨‹å¹¶éªŒè¯é€€å‡º
-echo [1/3] å…³é—­ WFM...
+echo [1/3] ¹Ø±Õ WFM...
 taskkill /f /im wfm.exe >nul 2>&1
 set "WAIT_COUNT=0"
 :wait_exit
 tasklist /fi "imagename eq wfm.exe" 2>nul | findstr /i "wfm.exe" >nul
-if errorlevel 1 (
-    echo       WFM è¿›ç¨‹å·²ç»“æŸ
-    goto :proc_killed
-)
+if errorlevel 1 goto :proc_killed
 set /a WAIT_COUNT+=1
 if %WAIT_COUNT% geq 10 (
-    echo.
-    echo [é”™è¯¯] æ— æ³•ç»“æŸ WFM è¿›ç¨‹!
-    echo        è¯·æ‰‹åŠ¨å…³é—­ WFM çª—å£åŽï¼ŒæŒ‰ä»»æ„é”®é‡è¯•
+    echo [´íÎó] ÎÞ·¨½áÊø WFM ½ø³Ì£¬ÇëÊÖ¶¯¹Ø±Õºó°´ÈÎÒâ¼üÖØÊÔ
     pause >nul
     taskkill /f /im wfm.exe >nul 2>&1
     set "WAIT_COUNT=0"
-    goto :wait_exit
 )
 ping -n 2 127.0.0.1 >nul
 goto :wait_exit
 :proc_killed
+echo       WFM ½ø³ÌÒÑ½áÊø
 echo.
 
-echo [2/3] è¿˜åŽŸåŽŸç‰ˆæ–‡ä»¶...
+echo [2/3] »¹Ô­Ô­°æÎÄ¼þ...
 if exist "%TARGET_DIR%\wfm.exe.bak_zh" (
     for %%A in ("%TARGET_DIR%\wfm.exe.bak_zh") do set "BAK_SIZE=%%~zA"
     move /y "%TARGET_DIR%\wfm.exe.bak_zh" "%TARGET_DIR%\wfm.exe" >nul
     for %%A in ("%TARGET_DIR%\wfm.exe") do set "DST_SIZE=%%~zA"
     if not "%BAK_SIZE%"=="%DST_SIZE%" (
-        echo [é”™è¯¯] wfm.exe è¿˜åŽŸå¤±è´¥! æ–‡ä»¶å¤§å°ä¸åŒ¹é…
-        echo        å¤‡ä»½å¤§å°: %BAK_SIZE% å­—èŠ‚ï¼Œå½“å‰å¤§å°: %DST_SIZE% å­—èŠ‚
+        echo [´íÎó] wfm.exe »¹Ô­Ê§°Ü
         pause
         exit /b 1
     )
-    echo       å·²è¿˜åŽŸ wfm.exe (%BAK_SIZE% å­—èŠ‚ï¼Œæ ¡éªŒé€šè¿‡)
+    echo       ÒÑ»¹Ô­ wfm.exe (%BAK_SIZE% ×Ö½Ú)
 )
 if exist "%TARGET_DIR%\libcdio.dll.bak_zh" (
     move /y "%TARGET_DIR%\libcdio.dll.bak_zh" "%TARGET_DIR%\libcdio.dll" >nul
-    echo       å·²è¿˜åŽŸ libcdio.dll
+    echo       ÒÑ»¹Ô­ libcdio.dll
 )
 
-echo [3/3] é‡å¯ WFM...
+echo [3/3] ÖØÆô WFM...
 start "" "%TARGET_DIR%\wfm.exe"
 echo.
-
 echo ============================================
-echo   è¿˜åŽŸå®Œæˆ! å·²æ¢å¤ä¸ºåŽŸç‰ˆ WFM
+echo   »¹Ô­Íê³É! ÒÑ»Ö¸´ÎªÔ­°æ WFM
 echo ============================================
 timeout /t 3 /nobreak >nul
 exit /b 0

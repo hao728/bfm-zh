@@ -1,169 +1,120 @@
 @echo off
-chcp 65001 >nul
-title BFM ä¸­æ–‡ç¾ŽåŒ–ç‰ˆ - å®‰è£…ç¨‹åº
+title BFM ÖÐÎÄÃÀ»¯°æ - °²×°³ÌÐò
 setlocal enabledelayedexpansion
 
 echo ============================================
-echo   BFM ä¸­æ–‡ç¾ŽåŒ–ç‰ˆ v1.2.1-zh.3 å®‰è£…ç¨‹åº
+echo   BFM ÖÐÎÄÃÀ»¯°æ v1.2.1-zh.3 °²×°³ÌÐò
 echo ============================================
 echo.
 
-rem èŽ·å–è„šæœ¬æ‰€åœ¨ç›®å½•
 set "SCRIPT_DIR=%~dp0"
-rem WFM éƒ¨ç½²ä½ç½®: C:\windows\wfm.exe (ä¸Šæ¸¸ README æŒ‡å®š)
 set "TARGET_DIR=C:\windows"
 
-rem å¦‚æžœç›®æ ‡ç›®å½•ä¸å­˜åœ¨ï¼Œå°è¯•æŸ¥æ‰¾WFM
 if not exist "%TARGET_DIR%\wfm.exe" (
-    echo [ä¿¡æ¯] æœªåœ¨é»˜è®¤ç›®å½•æ‰¾åˆ° WFMï¼Œæ­£åœ¨æœç´¢...
+    echo [ÐÅÏ¢] Î´ÔÚÄ¬ÈÏÄ¿Â¼ÕÒµ½ WFM£¬ÕýÔÚËÑË÷...
     for %%d in (C D E F G H) do (
         if exist "%%d:\windows\wfm.exe" (
             set "TARGET_DIR=%%d:\windows"
             goto :found
         )
     )
-    echo [é”™è¯¯] æœªæ‰¾åˆ° WFM å®‰è£…ç›®å½•ï¼Œè¯·ç¡®è®¤ Winlator å·²å®‰è£…
-    echo        æ­£ç¡®ä½ç½®åº”ä¸º C:\windows\wfm.exe
+    echo [´íÎó] Î´ÕÒµ½ WFM °²×°Ä¿Â¼
     pause
     exit /b 1
 )
 :found
-echo [ä¿¡æ¯] ç›®æ ‡ç›®å½•: %TARGET_DIR%
+echo [ÐÅÏ¢] Ä¿±êÄ¿Â¼: %TARGET_DIR%
 echo.
 
-rem ç»“æŸ WFM è¿›ç¨‹å¹¶éªŒè¯é€€å‡º
-echo [0/5] ç»“æŸ WFM è¿›ç¨‹...
+echo [0/5] ½áÊø WFM ½ø³Ì...
 taskkill /f /im wfm.exe >nul 2>&1
 set "WAIT_COUNT=0"
 :wait_exit
 tasklist /fi "imagename eq wfm.exe" 2>nul | findstr /i "wfm.exe" >nul
-if errorlevel 1 (
-    echo       WFM è¿›ç¨‹å·²ç»“æŸ
-    goto :proc_killed
-)
+if errorlevel 1 goto :proc_killed
 set /a WAIT_COUNT+=1
 if %WAIT_COUNT% geq 10 (
-    echo.
-    echo [é”™è¯¯] æ— æ³•ç»“æŸ WFM è¿›ç¨‹!
-    echo        è¯·æ‰‹åŠ¨å…³é—­ WFM çª—å£åŽï¼ŒæŒ‰ä»»æ„é”®é‡è¯•
+    echo [´íÎó] ÎÞ·¨½áÊø WFM ½ø³Ì£¬ÇëÊÖ¶¯¹Ø±Õºó°´ÈÎÒâ¼üÖØÊÔ
     pause >nul
     taskkill /f /im wfm.exe >nul 2>&1
     set "WAIT_COUNT=0"
-    goto :wait_exit
 )
 ping -n 2 127.0.0.1 >nul
 goto :wait_exit
 :proc_killed
+echo       WFM ½ø³ÌÒÑ½áÊø
 echo.
 
-rem æ£€æŸ¥æ˜¯å¦å·²å®‰è£…è¿‡æœ¬ç‰ˆæœ¬
 if exist "%TARGET_DIR%\wfm.exe.bak_zh" (
-    echo [è­¦å‘Š] æ£€æµ‹åˆ°å·²å­˜åœ¨å¤‡ä»½æ–‡ä»¶ï¼Œè¯´æ˜Žä¹‹å‰å·²å®‰è£…è¿‡æ±‰åŒ–ç‰ˆ
-    echo        å¦‚éœ€é‡æ–°å®‰è£…ï¼Œè¯·å…ˆè¿è¡Œ å¸è½½è¿˜åŽŸ.bat
-    echo.
-    choice /c YN /m "æ˜¯å¦ç»§ç»­è¦†ç›–å®‰è£…?"
+    echo [¾¯¸æ] ÒÑ´æÔÚ±¸·ÝÎÄ¼þ£¬ÈçÐèÖØÐÂ°²×°ÇëÏÈÔËÐÐÐ¶ÔØ»¹Ô­.bat
+    choice /c YN /m "ÊÇ·ñ¼ÌÐø¸²¸Ç°²×°?"
     if errorlevel 2 (
-        echo å®‰è£…å·²å–æ¶ˆ
+        echo °²×°ÒÑÈ¡Ïû
         pause
         exit /b 0
     )
 )
 
-rem å¤‡ä»½åŽŸç‰ˆæ–‡ä»¶
-echo [1/5] å¤‡ä»½åŽŸç‰ˆæ–‡ä»¶...
+echo [1/5] ±¸·ÝÔ­°æÎÄ¼þ...
 if not exist "%TARGET_DIR%\wfm.exe.bak_zh" (
     copy /y "%TARGET_DIR%\wfm.exe" "%TARGET_DIR%\wfm.exe.bak_zh" >nul
-    echo       å·²å¤‡ä»½ wfm.exe -^> wfm.exe.bak_zh
+    echo       ÒÑ±¸·Ý wfm.exe
 )
 if exist "%TARGET_DIR%\libcdio.dll" (
     if not exist "%TARGET_DIR%\libcdio.dll.bak_zh" (
         copy /y "%TARGET_DIR%\libcdio.dll" "%TARGET_DIR%\libcdio.dll.bak_zh" >nul
-        echo       å·²å¤‡ä»½ libcdio.dll -^> libcdio.dll.bak_zh
+        echo       ÒÑ±¸·Ý libcdio.dll
     )
 )
 echo.
 
-rem éƒ¨ç½² 7-Zip
-echo [2/5] æ£€æŸ¥ 7-Zip çŽ¯å¢ƒ...
+echo [2/5] ¼ì²é 7-Zip »·¾³...
 set "SEVENZIP_DIR=Z:\opt\apps\7-Zip"
 if exist "%SEVENZIP_DIR%\7z.exe" (
-    echo       7-Zip å·²å­˜åœ¨: %SEVENZIP_DIR%
+    echo       7-Zip ÒÑ´æÔÚ
+) else if exist "%SCRIPT_DIR%7z*.exe" (
+    echo       ¼ì²âµ½ 7-Zip °²×°°ü£¬ÕýÔÚ¾²Ä¬°²×°...
+    for %%f in ("%SCRIPT_DIR%7z*.exe") do "%%f" /S /D="%SEVENZIP_DIR%" >nul 2>&1
+    echo       7-Zip ÒÑ°²×°
 ) else (
-    if exist "%SCRIPT_DIR%7z\7z.exe" (
-        if not exist "%SEVENZIP_DIR%" mkdir "%SEVENZIP_DIR%"
-        copy /y "%SCRIPT_DIR%7z\7z.exe" "%SEVENZIP_DIR%\" >nul
-        copy /y "%SCRIPT_DIR%7z\7z.dll" "%SEVENZIP_DIR%\" >nul
-        echo       å·²éƒ¨ç½² 7-Zip ä¾¿æºç‰ˆåˆ° %SEVENZIP_DIR%
-    ) else if exist "%SCRIPT_DIR%7z*.exe" (
-        echo       æ£€æµ‹åˆ° 7-Zip å®‰è£…åŒ…ï¼Œæ­£åœ¨é™é»˜å®‰è£…...
-        for %%f in ("%SCRIPT_DIR%7z*.exe") do (
-            "%%f" /S /D="%SEVENZIP_DIR%" >nul 2>&1
-        )
-        echo       7-Zip å·²å®‰è£…åˆ° %SEVENZIP_DIR%
-    ) else (
-        echo       [æç¤º] æœªæ‰¾åˆ° 7-Zip æ–‡ä»¶ï¼Œè§£åŽ‹/åŽ‹ç¼©åŠŸèƒ½å°†ä¸å¯ç”¨
-    )
+    echo       [ÌáÊ¾] Î´ÕÒµ½ 7-Zip£¬½âÑ¹¹¦ÄÜ½«²»¿ÉÓÃ
 )
 echo.
 
-rem å¤åˆ¶æ±‰åŒ–ç‰ˆæ–‡ä»¶å¹¶æ ¡éªŒ
-echo [3/5] å®‰è£…æ±‰åŒ–ç‰ˆæ–‡ä»¶...
+echo [3/5] °²×°ºº»¯°æÎÄ¼þ...
 for %%A in ("%SCRIPT_DIR%wfm.exe") do set "SRC_SIZE=%%~zA"
 copy /y "%SCRIPT_DIR%wfm.exe" "%TARGET_DIR%\wfm.exe" >nul
 for %%A in ("%TARGET_DIR%\wfm.exe") do set "DST_SIZE=%%~zA"
 if not "%SRC_SIZE%"=="%DST_SIZE%" (
-    echo.
-    echo [é”™è¯¯] wfm.exe å¤åˆ¶å¤±è´¥!
-    echo        æºæ–‡ä»¶å¤§å°: %SRC_SIZE% å­—èŠ‚
-    echo        ç›®æ ‡æ–‡ä»¶å¤§å°: %DST_SIZE% å­—èŠ‚
-    echo        è¯·ç¡®è®¤ WFM å·²å®Œå…¨å…³é—­åŽé‡æ–°è¿è¡Œæœ¬è„šæœ¬
+    echo [´íÎó] wfm.exe ¸´ÖÆÊ§°Ü£¬ÇëÈ·ÈÏ WFM ÒÑÍêÈ«¹Ø±Õ
     pause
     exit /b 1
 )
-echo       å·²å¤åˆ¶ wfm.exe (%SRC_SIZE% å­—èŠ‚ï¼Œæ ¡éªŒé€šè¿‡)
+echo       ÒÑ¸´ÖÆ wfm.exe (%SRC_SIZE% ×Ö½Ú)
 
 if exist "%SCRIPT_DIR%libcdio.dll" (
-    for %%A in ("%SCRIPT_DIR%libcdio.dll") do set "SRC_SIZE2=%%~zA"
+    for %%A in ("%SCRIPT_DIR%libcdio.dll") do set "SRC2=%%~zA"
     copy /y "%SCRIPT_DIR%libcdio.dll" "%TARGET_DIR%\libcdio.dll" >nul
-    for %%A in ("%TARGET_DIR%\libcdio.dll") do set "DST_SIZE2=%%~zA"
-    if not "!SRC_SIZE2!"=="!DST_SIZE2!" (
-        echo [è­¦å‘Š] libcdio.dll å¤åˆ¶å¤±è´¥ï¼Œç»§ç»­å®‰è£…...
-    ) else (
-        echo       å·²å¤åˆ¶ libcdio.dll (!SRC_SIZE2! å­—èŠ‚ï¼Œæ ¡éªŒé€šè¿‡)
-    )
+    for %%A in ("%TARGET_DIR%\libcdio.dll") do set "DST2=%%~zA"
+    if "!SRC2!"=="!DST2!" echo       ÒÑ¸´ÖÆ libcdio.dll (!SRC2! ×Ö½Ú)
+    if not "!SRC2!"=="!DST2!" echo       [¾¯¸æ] libcdio.dll ¸´ÖÆÊ§°Ü
 )
 echo.
 
-rem é‡å¯ WFM
-echo [4/5] å¯åŠ¨ WFM...
+echo [4/5] Æô¶¯ WFM...
 start "" "%TARGET_DIR%\wfm.exe"
 echo.
 
-echo [5/5] å®‰è£…å®ŒæˆéªŒè¯...
+echo [5/5] °²×°Íê³ÉÑéÖ¤...
 ping -n 3 127.0.0.1 >nul
 if exist "%TARGET_DIR%\wfm.exe" (
-    echo       éªŒè¯é€šè¿‡: wfm.exe å·²éƒ¨ç½²åˆ° %TARGET_DIR%
+    echo       ÑéÖ¤Í¨¹ý
 ) else (
-    echo       [è­¦å‘Š] æœªæ‰¾åˆ° wfm.exeï¼Œè¯·æ‰‹åŠ¨æ£€æŸ¥
+    echo       [¾¯¸æ] Î´ÕÒµ½ wfm.exe
 )
 echo.
-
 echo ============================================
-echo   å®‰è£…å®Œæˆ!
+echo   °²×°Íê³É!
 echo ============================================
-echo.
-echo   ç‰ˆæœ¬: v1.2.1-zh.3
-echo   åŸºäºŽ: Banner File Manager v1.2.1
-echo.
-echo   ä¸»è¦åŠŸèƒ½:
-echo   - å®Œæ•´ä¸­æ–‡æ±‰åŒ–
-echo   - æ–‡ä»¶ç±»åž‹æ™ºèƒ½è¯†åˆ«å›¾æ ‡
-echo   - å³é”®è§£åŽ‹/åŽ‹ç¼©/æµ‹è¯•å®Œæ•´æ€§
-echo   - åŒé¢æ¿ + æ‹–æ‹½
-echo   - é¢„è§ˆçª—æ ¼
-echo   - æ”¶è—å¤¹
-echo   - åŠ é€Ÿå¯åŠ¨
-echo   - å¯åŠ¨å‚æ•°é¢„è®¾
-echo.
 timeout /t 3 /nobreak >nul
 exit /b 0
