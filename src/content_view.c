@@ -208,16 +208,26 @@ static HBITMAP getCachedCustomIcon(const wchar_t* ext, int w, int h) {
         }
     }
     // 缓存未命中，生成新图标
-    if (g_customIconCacheCount >= CUSTOM_ICON_CACHE_MAX) return NULL;
     HBITMAP hBmp = drawCustomIcon(ext, w, h);
-    if (hBmp) {
-        wcsncpy(g_customIconCache[g_customIconCacheCount].ext, ext, 15);
-        g_customIconCache[g_customIconCacheCount].ext[15] = 0;
-        g_customIconCache[g_customIconCacheCount].w = w;
-        g_customIconCache[g_customIconCacheCount].h = h;
-        g_customIconCache[g_customIconCacheCount].hBmp = hBmp;
-        g_customIconCacheCount++;
+    if (!hBmp) return NULL;
+    int idx;
+    if (g_customIconCacheCount < CUSTOM_ICON_CACHE_MAX) {
+        idx = g_customIconCacheCount++;
+    } else {
+        // 缓存满，覆盖最旧的（索引0），先释放旧资源
+        idx = 0;
+        if (g_customIconCache[0].hBmp) DeleteObject(g_customIconCache[0].hBmp);
+        // 移动其余条目前移
+        for (int i = 0; i < CUSTOM_ICON_CACHE_MAX - 1; i++) {
+            g_customIconCache[i] = g_customIconCache[i+1];
+        }
+        idx = CUSTOM_ICON_CACHE_MAX - 1;
     }
+    wcsncpy(g_customIconCache[idx].ext, ext, 15);
+    g_customIconCache[idx].ext[15] = 0;
+    g_customIconCache[idx].w = w;
+    g_customIconCache[idx].h = h;
+    g_customIconCache[idx].hBmp = hBmp;
     return hBmp;
 }
 
@@ -535,7 +545,7 @@ static int getThumbnailIcon(const wchar_t* path, const wchar_t* ext, const FILET
 }
 
 // 从exe提取图标，失败则查找同目录.ico文件（解决Wine下SHGetFileInfo提取不到某些exe图标的问题）
-static HICON getExeIconEnhanced(const wchar_t* exePath) {
+HICON getExeIconEnhanced(const wchar_t* exePath) {
     // 查缓存
     for (int i = 0; i < g_exeIconCacheCount; i++) {
         if (wcscmp(g_exeIconCache[i].path, exePath) == 0) {
@@ -641,6 +651,10 @@ static void startFileDrag(HWND hwnd);
 static void updateSelectedItems(void);
 static void onMenuItemNewTxtClick();
 static void onMenuItemRefreshClick();
+static void onMenuItemSortNameClick();
+static void onMenuItemSortTypeClick();
+static void onMenuItemSortSizeClick();
+static void onMenuItemSortDateClick();
 static void onMenuItemNewBatClick();
 static void onMenuItemNewRegClick();
 static IDropTarget* createDropTarget(void);
@@ -682,6 +696,10 @@ static struct ContextMenuItem cmiPaste = {NULL, &onMenuItemPasteClick, NULL};
 static struct ContextMenuItem cmiPasteShortcut = {NULL, &onMenuItemPasteShortcutClick, NULL};
 static struct ContextMenuItem cmiNewFolder = {NULL, &onMenuItemNewFolderClick, NULL};
 static struct ContextMenuItem cmiRefresh = {NULL, &onMenuItemRefreshClick, NULL};
+static struct ContextMenuItem cmiSortName = {NULL, &onMenuItemSortNameClick, NULL};
+static struct ContextMenuItem cmiSortType = {NULL, &onMenuItemSortTypeClick, NULL};
+static struct ContextMenuItem cmiSortSize = {NULL, &onMenuItemSortSizeClick, NULL};
+static struct ContextMenuItem cmiSortDate = {NULL, &onMenuItemSortDateClick, NULL};
 static struct ContextMenuItem cmiNewFile = {NULL, &onMenuItemNewFileClick, NULL};
 static struct ContextMenuItem cmiLoadISOImage = {NULL, &onMenuItemLoadISOImageClick, NULL};
 static struct ContextMenuItem cmiUnloadISOImage = {NULL, &onMenuItemUnloadISOImageClick, NULL};
@@ -1592,8 +1610,15 @@ static void createContextMenu(enum ContextMenuType type) {
         }
     }
     else {
-        addContextMenuItem(hMenu, id++, &cmiRefresh, true);
-        addContextMenuItem(hMenu, id++, &cmiPaste, false);
+        addContextMenuItem(hMenu, id++, &cmiRefresh, false);
+        // 排序方式子菜单（所有视图通用）
+        HMENU hSort = CreatePopupMenu();
+        addContextMenuItem(hSort, id++, &cmiSortName, false);
+        addContextMenuItem(hSort, id++, &cmiSortType, false);
+        addContextMenuItem(hSort, id++, &cmiSortSize, false);
+        addContextMenuItem(hSort, id++, &cmiSortDate, false);
+        AppendMenuW(hMenu, MF_POPUP | MF_STRING, (UINT_PTR)hSort, lc_str.sort_by ? lc_str.sort_by : L"排序方式");
+        addContextMenuItem(hMenu, id++, &cmiPaste, true);
         addContextMenuItem(hMenu, id++, &cmiPasteShortcut, true);
         createCDDriveContextMenu(&id);
         addContextMenuItem(hMenu, id++, &cmiNewFolder, false);
@@ -1711,11 +1736,21 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         FillRect(hdc, &bgR, bgBrush);
                         DeleteObject(bgBrush);
                     }
-                    // 绘制16x16自定义图标或系统图标
+                    // 绘制16x16图标：自定义图标/exe增强图标/系统图标
                     bool useCustom = (item->node->type == TYPE_FILE);
                     wchar_t* ext = useCustom ? wcsrchr(item->node->name, L'.') : NULL;
                     bool isExe = ext && (wcsicmp(ext,L".exe")==0 || wcsicmp(ext,L".lnk")==0);
-                    if (useCustom && ext && !isExe) {
+                    bool drewIcon = false;
+                    if (isExe) {
+                        wchar_t exePath[MAX_PATH] = {0};
+                        getFileNodePath(item->node, exePath);
+                        HICON hExeIcon = getExeIconEnhanced(exePath);
+                        if (hExeIcon) {
+                            DrawIconEx(hdc, rc.left + 2, rc.top + (rowH-16)/2, hExeIcon, 16, 16, 0, NULL, DI_NORMAL);
+                            drewIcon = true;
+                        }
+                    }
+                    if (!drewIcon && useCustom && ext && !isExe) {
                         HBITMAP hIconBmp = getCachedCustomIcon(ext, 16, 16);
                         if (hIconBmp) {
                             HDC iconDC = CreateCompatibleDC(hdc);
@@ -1723,9 +1758,10 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                             BitBlt(hdc, rc.left + 2, rc.top + (rowH-16)/2, 16, 16, iconDC, 0, 0, SRCCOPY);
                             SelectObject(iconDC, oldIcon);
                             DeleteDC(iconDC);
-                            DeleteObject(hIconBmp);
+                            drewIcon = true;
                         }
-                    } else {
+                    }
+                    if (!drewIcon) {
                         HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_SMALL);
                         if (himl && item->icon >= 0)
                             ImageList_Draw(himl, item->icon, hdc, rc.left + 2, rc.top + (rowH-16)/2, ILD_TRANSPARENT);
@@ -1748,12 +1784,22 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         FillRect(hdc, &bgR, bgBrush);
                         DeleteObject(bgBrush);
                     }
-                    // 绘制32x32自定义图标或系统图标
+                    // 绘制32x32图标：exe增强/自定义/系统
                     bool useCustom = (item->node->type == TYPE_FILE);
                     wchar_t* ext = useCustom ? wcsrchr(item->node->name, L'.') : NULL;
                     bool isExe = ext && (wcsicmp(ext,L".exe")==0 || wcsicmp(ext,L".lnk")==0);
                     int iconX = rc.left + (rc.right - rc.left - 32) / 2;
-                    if (useCustom && ext && !isExe) {
+                    bool drewIcon = false;
+                    if (isExe) {
+                        wchar_t exePath[MAX_PATH] = {0};
+                        getFileNodePath(item->node, exePath);
+                        HICON hExeIcon = getExeIconEnhanced(exePath);
+                        if (hExeIcon) {
+                            DrawIconEx(hdc, iconX, rc.top + 4, hExeIcon, 32, 32, 0, NULL, DI_NORMAL);
+                            drewIcon = true;
+                        }
+                    }
+                    if (!drewIcon && useCustom && ext && !isExe) {
                         HBITMAP hIconBmp = getCachedCustomIcon(ext, 32, 32);
                         if (hIconBmp) {
                             HDC iconDC = CreateCompatibleDC(hdc);
@@ -1761,9 +1807,10 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                             BitBlt(hdc, iconX, rc.top + 4, 32, 32, iconDC, 0, 0, SRCCOPY);
                             SelectObject(iconDC, oldIcon);
                             DeleteDC(iconDC);
-                            DeleteObject(hIconBmp);
+                            drewIcon = true;
                         }
-                    } else {
+                    }
+                    if (!drewIcon) {
                         HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_NORMAL);
                         if (himl && item->icon >= 0)
                             ImageList_Draw(himl, item->icon, hdc, iconX, rc.top + 4, ILD_TRANSPARENT);
@@ -1813,16 +1860,26 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                 int w1 = SendMessage(p->hwndList, LVM_GETCOLUMNWIDTH, 1, 0);
                 int w2 = SendMessage(p->hwndList, LVM_GETCOLUMNWIDTH, 2, 0);
 
-                // 绘制图标：非exe/lnk文件用自定义图标，其他用系统图标
+                // 绘制图标：exe增强/自定义/系统
                 bool useCustomIcon = false;
+                bool isExeOrLnk = false;
                 wchar_t* fileExt = NULL;
                 if (item->node->type == TYPE_FILE) {
                     fileExt = wcsrchr(item->node->name, L'.');
-                    bool isExeOrLnk = fileExt && (wcsicmp(fileExt, L".exe")==0 || wcsicmp(fileExt, L".lnk")==0);
+                    isExeOrLnk = fileExt && (wcsicmp(fileExt, L".exe")==0 || wcsicmp(fileExt, L".lnk")==0);
                     if (!isExeOrLnk && fileExt) useCustomIcon = true;
                 }
-                if (useCustomIcon) {
-                    // 用drawCustomIcon生成16x16真正图标图案
+                bool drewIcon = false;
+                if (isExeOrLnk) {
+                    wchar_t exePath[MAX_PATH] = {0};
+                    getFileNodePath(item->node, exePath);
+                    HICON hExeIcon = getExeIconEnhanced(exePath);
+                    if (hExeIcon) {
+                        DrawIconEx(hdc, rc.left + 4, rc.top + (rowH - 16) / 2, hExeIcon, 16, 16, 0, NULL, DI_NORMAL);
+                        drewIcon = true;
+                    }
+                }
+                if (!drewIcon && useCustomIcon) {
                     HBITMAP hIconBmp = getCachedCustomIcon(fileExt, 16, 16);
                     if (hIconBmp) {
                         HDC iconDC = CreateCompatibleDC(hdc);
@@ -1830,9 +1887,10 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         BitBlt(hdc, rc.left + 4, rc.top + (rowH - 16) / 2, 16, 16, iconDC, 0, 0, SRCCOPY);
                         SelectObject(iconDC, oldIcon);
                         DeleteDC(iconDC);
-                        DeleteObject(hIconBmp);
+                        drewIcon = true;
                     }
-                } else {
+                }
+                if (!drewIcon) {
                     HIMAGELIST himl = ListView_GetImageList(p->hwndList, LVSIL_SMALL);
                     if (himl && item->icon >= 0) {
                         ImageList_Draw(himl, item->icon, hdc, rc.left + 4, rc.top + (rowH - 16) / 2, ILD_TRANSPARENT);
@@ -2438,6 +2496,10 @@ static void initContextMenuTexts(void) {
     cmiTestArchive.text = lc_str.test_archive;
     cmiCompressZip.text = lc_str.compress_zip;
     cmiCompress7z.text = lc_str.compress_7z;
+    cmiSortName.text = lc_str.sort_name;
+    cmiSortType.text = lc_str.sort_type;
+    cmiSortSize.text = lc_str.sort_size;
+    cmiSortDate.text = lc_str.sort_date;
     cmiNewTxt.text = lc_str.new_txt;
     cmiNewBat.text = lc_str.new_bat;
     cmiNewReg.text = lc_str.new_reg;
@@ -4176,6 +4238,35 @@ static void sortItems(struct Pane* p) {
     }
 }
 
+// 排序处理：所有视图通用
+static void doSortByColumn(int colIdx) {
+    struct Pane* p = activePane();
+    if (!p || p->numItems == 0) return;
+    if (p->sortColumnIdx == colIdx) {
+        p->sortAscending = !p->sortAscending;
+    } else {
+        p->sortColumnIdx = colIdx;
+        p->sortAscending = true;
+    }
+    sortItems(p);
+    ListView_DeleteAllItems(p->hwndList);
+    for (int i = 0; i < p->numItems; i++) {
+        LVITEMW lvi = {0};
+        lvi.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
+        lvi.iItem = i;
+        lvi.iSubItem = 0;
+        lvi.pszText = p->items[i].node->name;
+        lvi.iImage = p->items[i].icon;
+        lvi.lParam = (LPARAM)p->items[i].node;
+        ListView_InsertItem(p->hwndList, &lvi);
+    }
+}
+
+static void onMenuItemSortNameClick() { doSortByColumn(COLUMN_NAME_IDX); }
+static void onMenuItemSortTypeClick() { doSortByColumn(COLUMN_TYPE_IDX); }
+static void onMenuItemSortSizeClick() { doSortByColumn(COLUMN_SIZE_IDX); }
+static void onMenuItemSortDateClick() { doSortByColumn(COLUMN_DATE_IDX); }
+
 static void refreshPane(struct Pane* p) {
     // 空指针保护：防止切换视图/磁盘时崩溃
     if (!p || !p->hwndList || !p->currPath) return;
@@ -4531,6 +4622,8 @@ static void onMenuItemExtractToFolderClick() {
 }
 
 // 通用7z命令执行（带进度窗口）
+static wchar_t g_sevenZipLastOpName[MAX_PATH] = {0};
+
 struct SevenZipArg {
     wchar_t exe7z[MAX_PATH];
     wchar_t cmdLine[MAX_PATH * 4];
@@ -4539,18 +4632,21 @@ struct SevenZipArg {
 
 static DWORD WINAPI sevenZipThreadProc(LPVOID param) {
     struct SevenZipArg* arg = (struct SevenZipArg*)param;
+    wcscpy_s(g_sevenZipLastOpName, MAX_PATH, arg->displayName);
     STARTUPINFOW si = {0};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION pi = {0};
+    DWORD exitCode = 1; // 默认失败
     if (CreateProcessW(arg->exe7z, arg->cmdLine, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         CloseHandle(pi.hThread);
         WaitForSingleObject(pi.hProcess, INFINITE);
+        GetExitCodeProcess(pi.hProcess, &exitCode);
         CloseHandle(pi.hProcess);
     }
     free(arg);
-    PostMessageW(hwndMain, WM_USER_EXTRACT_DONE, 0, 0);
+    PostMessageW(hwndMain, WM_USER_EXTRACT_DONE, (WPARAM)exitCode, 0);
     return 0;
 }
 
