@@ -141,6 +141,11 @@ static inline void loadStrings_ru() {
     lc_str.test_archive = L"\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0446\u0435\u043b\u043e\u0441\u0442\u043d\u043e\u0441\u0442\u044c";
     lc_str.compress_zip = L"\u0421\u0436\u0430\u0442\u044c \u0432 ZIP";
     lc_str.compress_7z = L"\u0421\u0436\u0430\u0442\u044c \u0432 7Z";
+    lc_str.sort_by = L"\u0421\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u043a\u0430";
+    lc_str.sort_name = L"\u0418\u043c\u044f";
+    lc_str.sort_type = L"\u0422\u0438\u043f";
+    lc_str.sort_size = L"\u0420\u0430\u0437\u043c\u0435\u0440";
+    lc_str.sort_date = L"\u0414\u0430\u0442\u0430";
     lc_str.shared_storage = L"\u043e\u0431\u0449\u0438\u0439";
     lc_str.diff_files = L"\u0421\u0440\u0430\u0432\u043d\u0438\u0442\u044c \u0444\u0430\u0439\u043b\u044b";
     lc_str.launcher_boost_aggressive = L"Агрессивный буст";

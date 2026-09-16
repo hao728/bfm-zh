@@ -681,6 +681,8 @@ extern void cvRefreshLanguage(void);
 extern void onMenuItemLoadISOImageClick(void);
 extern void onMenuItemUnloadISOImageClick(void);
 extern void hideExtractProgress(void);
+extern wchar_t g_sevenZipLastOpName[];
+extern HICON getExeIconEnhanced(const wchar_t* exePath);
 
 // 前向声明：createMainMenu 在后面定义，但被 mainMenuCommand 调用
 
@@ -873,13 +875,22 @@ void previewUpdate(void) {
     if (!path[0]) { InvalidateRect(hwndPreview, NULL, TRUE); return; }
     wcscpy_s(previewPath, MAX_PATH, path);
 
-    // 非图像文件的大图标（及回退）。
-
-    SHFILEINFOW sfi = {0};
-    if (SHGetFileInfoW(path, 0, &sfi, sizeof(sfi),
-                       SHGFI_ICON | SHGFI_LARGEICON | SHGFI_TYPENAME)) {
-        previewIcon = sfi.hIcon;
-        wcscpy_s(previewTypeName, 64, sfi.szTypeName);
+    // 非图像文件的大图标（及回退）。exe优先用增强提取。
+    bool isExeFile = false;
+    {
+        const wchar_t* dot = wcsrchr(path, L'.');
+        isExeFile = dot && (wcsicmp(dot, L".exe")==0 || wcsicmp(dot, L".lnk")==0);
+    }
+    if (isExeFile) {
+        previewIcon = getExeIconEnhanced(path);
+    }
+    if (!previewIcon) {
+        SHFILEINFOW sfi = {0};
+        if (SHGetFileInfoW(path, 0, &sfi, sizeof(sfi),
+                           SHGFI_ICON | SHGFI_LARGEICON | SHGFI_TYPENAME)) {
+            if (!previewIcon) previewIcon = sfi.hIcon;
+            wcscpy_s(previewTypeName, 64, sfi.szTypeName);
+        }
     }
 
     // 文件大小 + 日期。
@@ -1231,6 +1242,16 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         case WM_USER_EXTRACT_DONE:
             hideExtractProgress();
             navigateRefresh();
+            {
+                wchar_t msg[512];
+                if (wParam == 0) {
+                    swprintf_s(msg, _countof(msg), L"%ls 完成", g_sevenZipLastOpName);
+                    MessageBoxW(hwnd, msg, L"7-Zip", MB_OK | MB_ICONINFORMATION);
+                } else {
+                    swprintf_s(msg, _countof(msg), L"%ls 失败（退出码：%lu）", g_sevenZipLastOpName, (unsigned long)wParam);
+                    MessageBoxW(hwnd, msg, L"7-Zip", MB_OK | MB_ICONERROR);
+                }
+            }
             break;
         case WM_USER_BOOST_START:
             setStatusbarText(lc_str.boost_working);

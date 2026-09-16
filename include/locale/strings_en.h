@@ -141,6 +141,11 @@ static inline void loadStrings_en() {
     lc_str.test_archive = L"Test archive integrity";
     lc_str.compress_zip = L"Compress to ZIP";
     lc_str.compress_7z = L"Compress to 7Z";
+    lc_str.sort_by = L"Sort by";
+    lc_str.sort_name = L"Name";
+    lc_str.sort_type = L"Type";
+    lc_str.sort_size = L"Size";
+    lc_str.sort_date = L"Date";
     lc_str.shared_storage = L"shared";
     lc_str.diff_files = L"Compare files";
     lc_str.launcher_boost_aggressive = L"Aggressive boost & run";
