@@ -39,10 +39,9 @@ jobs:
         run: |
           mkdir -p release
           cp wfm.exe libcdio.dll release/
-          # 复制安装脚本和使用说明（根目录为新版；scripts/ 为旧版，不再引用）
+          # 复制安装脚本（根目录为新版）
           if [ -f 安装.bat ]; then cp 安装.bat release/; fi
           if [ -f 卸载还原.bat ]; then cp 卸载还原.bat release/; fi
-          if [ -f "scripts/使用说明.txt" ]; then cp "scripts/使用说明.txt" release/; fi
           # Package everything in release/ into the zip
           cd release && zip -r ../bfm-zh-x64.zip . && cd ..
           echo "=== zip contents ==="
