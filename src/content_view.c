@@ -4622,7 +4622,7 @@ static void onMenuItemExtractToFolderClick() {
 }
 
 // 通用7z命令执行（带进度窗口）
-static wchar_t g_sevenZipLastOpName[MAX_PATH] = {0};
+wchar_t g_sevenZipLastOpName[MAX_PATH] = {0};
 
 struct SevenZipArg {
     wchar_t exe7z[MAX_PATH];
