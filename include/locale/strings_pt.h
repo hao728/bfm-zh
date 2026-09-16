@@ -138,6 +138,9 @@ static inline void loadStrings_pt() {
     lc_str.preview_pane = L"Painel de visualizacao";
     lc_str.extract_here = L"Extrair aqui";
     lc_str.extract_to_folder = L"Extrair para pasta";
+    lc_str.test_archive = L"Testar integridade";
+    lc_str.compress_zip = L"Compactar para ZIP";
+    lc_str.compress_7z = L"Compactar para 7Z";
     lc_str.shared_storage = L"compartilhado";
     lc_str.diff_files = L"Comparar arquivos";
     lc_str.launcher_boost_aggressive = L"Boost agressivo";
