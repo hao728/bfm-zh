@@ -34,6 +34,7 @@ static wchar_t keyword[64] = {0};
 static bool searchEditEmpty = true;
 static struct AddrButton* addrButtons = NULL;
 static int numAddrButtons = 0;
+static int addrEditHeight = 16;  // 随字体自适应，非const
 
 // 应用字体到地址栏和搜索框（供main.c切换字体大小时调用）
 void navbarApplyFont(HFONT font) {
@@ -204,7 +205,17 @@ LRESULT CALLBACK NavbarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
             const int margin = 4;
             const int searchEditWidth = 160;
             const int editWrapperHeight = buttonSize - margin;
-            const int addrEditHeight = 16;
+            // 编辑框高度随字体自适应（最小16px），避免大字体时文字偏下/被裁剪
+            HDC hdcNav = GetDC(hwnd);
+            HFONT hfNav = (HFONT)SendMessage(hwndAddrEdit, WM_GETFONT, 0, 0);
+            HFONT oldNav = hfNav ? SelectObject(hdcNav, hfNav) : NULL;
+            TEXTMETRICW tmNav;
+            if (GetTextMetricsW(hdcNav, &tmNav) && tmNav.tmHeight > 0) {
+                addrEditHeight = tmNav.tmHeight + 4;
+            }
+            if (oldNav) SelectObject(hdcNav, oldNav);
+            ReleaseDC(hwnd, hdcNav);
+            if (addrEditHeight < 16) addrEditHeight = 16;
             const int addrEditY = (editWrapperHeight - addrEditHeight) / 2;
             
             int offsetX = rect.right - (margin + buttonSize);

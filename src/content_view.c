@@ -4460,14 +4460,14 @@ static LRESULT CALLBACK extractProgressWndProc(HWND hwnd, UINT msg, WPARAM wPara
                 DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei");
             HGDIOBJ oldFont = SelectObject(hdc, hFont);
             RECT titleR = {10, 10, rc.right - 10, 35};
-            DrawTextW(hdc, L"正在解压...", -1, &titleR, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-            // 文件名
+            DrawTextW(hdc, g_extractFileName[0] ? g_extractFileName : L"正在处理...", -1, &titleR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            // 状态提示（随操作类型变化）
             HFONT hFont2 = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Microsoft YaHei");
             SelectObject(hdc, hFont2);
-            RECT fileR = {10, 40, rc.right - 10, 70};
-            DrawTextW(hdc, g_extractFileName, -1, &fileR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            RECT tipR = {10, 100, rc.right - 10, 125};
+            DrawTextW(hdc, L"处理中，请稍候...完成后窗口自动关闭并显示结果", -1, &tipR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
             // 进度条背景
             RECT barR = {10, 75, rc.right - 10, 95};
             HBRUSH hBarBg = CreateSolidBrush(RGB(220,220,220));
@@ -4503,7 +4503,11 @@ static LRESULT CALLBACK extractProgressWndProc(HWND hwnd, UINT msg, WPARAM wPara
 }
 
 static void showExtractProgress(const wchar_t* fileName) {
-    if (g_hExtractProgressWnd) return;
+    // 若窗口已存在，先销毁旧窗口，确保标题/内容总是对应最新操作
+    if (g_hExtractProgressWnd) {
+        DestroyWindow(g_hExtractProgressWnd);
+        g_hExtractProgressWnd = NULL;
+    }
     wcscpy_s(g_extractFileName, MAX_PATH, fileName);
     // 注册窗口类
     WNDCLASSW wc = {0};
@@ -4513,9 +4517,9 @@ static void showExtractProgress(const wchar_t* fileName) {
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.hCursor = LoadCursor(NULL, IDC_WAIT);
     RegisterClassW(&wc);
-    // 创建窗口
+    // 创建窗口，标题用操作名（解压/压缩/测试等）
     g_hExtractProgressWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-        L"ExtractProgressWnd", L"解压进度",
+        L"ExtractProgressWnd", g_extractFileName[0] ? g_extractFileName : L"处理中",
         WS_POPUP | WS_CAPTION | WS_SYSMENU,
         CW_USEDEFAULT, CW_USEDEFAULT, 380, 160,
         hwndMain, NULL, GetModuleHandleW(NULL), NULL);

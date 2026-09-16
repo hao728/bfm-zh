@@ -492,6 +492,18 @@ static void applyFontSize(int pt) {
     DrawMenuBar(hwndMain);
 }
 
+// 切换主题后刷新所有界面元素
+static void applyThemeAndRefresh(void) {
+    // 重建菜单（勾选当前主题）
+    createMainMenu();
+    // 刷新内容区（主题颜色变化）
+    cvRefreshLanguage();
+    // 重绘标题栏、工具栏、状态栏、导航栏
+    InvalidateRect(hwndMain, NULL, TRUE);
+    DrawMenuBar(hwndMain);
+    RedrawWindow(hwndMain, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+}
+
 HFONT getUIFont(void) {
     if (!uiFont) {
         HDC screen = GetDC(NULL);
@@ -771,6 +783,9 @@ void mainMenuCommand(WPARAM wParam) {
         case ID_NAV_RECENT: recentMenu(); break;
         case ID_VIEW_GAME_MODE: onMenuItemGameModeClick(); break;
         case ID_VIEW_COMPARE: onMenuItemComparePanesClick(); break;
+        case ID_VIEW_THEME_LIGHT: themeSetMode(THEME_LIGHT); applyThemeAndRefresh(); break;
+        case ID_VIEW_THEME_DARK: themeSetMode(THEME_DARK); applyThemeAndRefresh(); break;
+        case ID_VIEW_THEME_CUSTOM: themeSetMode(THEME_CUSTOM); applyThemeAndRefresh(); break;
         case ID_TAB_NEW: tabNew(); break;
         case ID_TAB_CLOSE: tabCloseActive(); break;
         case ID_TOOL_NOTEPAD: ShellExecuteW(NULL, L"open", L"notepad.exe", NULL, NULL, SW_SHOW); break;
@@ -1514,6 +1529,16 @@ static void createMainMenu() {
     AppendMenu(hmView, MF_SEPARATOR, 0, NULL);
     AppendMenu(hmView, MF_STRING, ID_VIEW_GAME_MODE, lc_str.game_mode);
     AppendMenu(hmView, MF_STRING, ID_VIEW_COMPARE, lc_str.compare_panes);
+    // 主题子菜单：浅色/深色/自定义（原主题系统无菜单入口，用户找不到深色模式）
+    {
+        HMENU hmTheme = CreatePopupMenu();
+        UINT checked = MF_BYCOMMAND | MF_CHECKED;
+        int curTheme = themeGetMode();
+        AppendMenu(hmTheme, (curTheme == THEME_LIGHT ? checked : MF_STRING), ID_VIEW_THEME_LIGHT, L"浅色主题");
+        AppendMenu(hmTheme, (curTheme == THEME_DARK ? checked : MF_STRING), ID_VIEW_THEME_DARK, L"深色主题");
+        AppendMenu(hmTheme, (curTheme == THEME_CUSTOM ? checked : MF_STRING), ID_VIEW_THEME_CUSTOM, L"自定义");
+        AppendMenu(hmView, MF_POPUP | MF_STRING, (UINT_PTR)hmTheme, L"主题");
+    }
     hViewMenu = hmView;
     // 设置视图菜单初始勾选状态
     CheckMenuItem(hViewMenu, ID_VIEW_HIDDEN, MF_BYCOMMAND | (showHiddenFiles ? MF_CHECKED : MF_UNCHECKED));

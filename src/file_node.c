@@ -86,12 +86,15 @@ void buildChildNodes(struct FileNode* parent, bool onlyDirs) {
         wcscat_s(path, MAX_PATH, L"\\*");
         HANDLE handle = FindFirstFile(path, &wfd);
         
+        int childCount = 0;
+        const int maxChildNodes = 20000;  // 防超大目录卡死UI
         do {
             if (wcscmp(wfd.cFileName, L".") == 0 || wcscmp(wfd.cFileName, L"..") == 0 ||
                (onlyDirs && (wfd.dwFileAttributes & FILE_ATTRIBUTE_ARCHIVE))) continue; 
             
             if (((wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (wfd.dwFileAttributes & FILE_ATTRIBUTE_ARCHIVE)) &&
                 (showHiddenFiles || !(wfd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN))) {
+                if (++childCount > maxChildNodes) break;  // 达到上限，停止遍历
                 enum FileType type = (wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? TYPE_DIR : TYPE_FILE;
 
                 wchar_t* name = wcsdup(wfd.cFileName);
