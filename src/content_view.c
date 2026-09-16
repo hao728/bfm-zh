@@ -1755,7 +1755,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         if (hIconBmp) {
                             HDC iconDC = CreateCompatibleDC(hdc);
                             HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
-                            BitBlt(hdc, rc.left + 2, rc.top + (rowH-16)/2, 16, 16, iconDC, 0, 0, SRCCOPY);
+                            TransparentBlt(hdc, rc.left + 2, rc.top + (rowH-16)/2, 16, 16, iconDC, 0, 0, 16, 16, RGB(255,255,255));
                             SelectObject(iconDC, oldIcon);
                             DeleteDC(iconDC);
                             drewIcon = true;
@@ -1804,7 +1804,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         if (hIconBmp) {
                             HDC iconDC = CreateCompatibleDC(hdc);
                             HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
-                            BitBlt(hdc, iconX, rc.top + 4, 32, 32, iconDC, 0, 0, SRCCOPY);
+                            TransparentBlt(hdc, iconX, rc.top + 4, 32, 32, iconDC, 0, 0, 32, 32, RGB(255,255,255));
                             SelectObject(iconDC, oldIcon);
                             DeleteDC(iconDC);
                             drewIcon = true;
@@ -1884,7 +1884,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     if (hIconBmp) {
                         HDC iconDC = CreateCompatibleDC(hdc);
                         HBITMAP oldIcon = SelectObject(iconDC, hIconBmp);
-                        BitBlt(hdc, rc.left + 4, rc.top + (rowH - 16) / 2, 16, 16, iconDC, 0, 0, SRCCOPY);
+                        TransparentBlt(hdc, rc.left + 4, rc.top + (rowH - 16) / 2, 16, 16, iconDC, 0, 0, 16, 16, RGB(255,255,255));
                         SelectObject(iconDC, oldIcon);
                         DeleteDC(iconDC);
                         drewIcon = true;
