@@ -16,13 +16,15 @@ jobs:
         run: |
           export CURRENT_RUN=$GITHUB_RUN_ID
           echo "当前运行（保留）: $CURRENT_RUN"
+          COUNT=0
           gh api "repos/$GITHUB_REPOSITORY/actions/runs?per_page=100" --paginate \
             --jq ".workflow_runs[] | select(.id != ($ENV.CURRENT_RUN | tonumber)) | .id" \
             | while read -r rid; do
                 echo "删除 run $rid"
-                gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$rid" >/dev/null 2>&1 || true
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$rid" || echo "  -> 删除失败 $rid"
+                COUNT=$((COUNT+1))
               done
-          echo "=== 删除后剩余运行数 ==="
+          echo "=== 已处理 $COUNT 条，剩余运行数 ==="
           gh api "repos/$GITHUB_REPOSITORY/actions/runs?per_page=1" --jq '.total_count'
 
       - name: Remove self workflow via API
@@ -31,11 +33,11 @@ jobs:
         run: |
           FILE=".github/workflows/clean-actions.yml"
           SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE" --jq '.sha' 2>/dev/null || echo "")
-          if [ -n "$SHA" ]; then
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/contents/$FILE" \
-              -f message="删除 Actions 清理工作流" \
-              -f sha="$SHA" >/dev/null
+          echo "文件 SHA: $SHA"
+          if [ -n "$SHA" ] && [ "$SHA" != "null" ]; then
+            echo "{\"message\":\"删除 Actions 清理工作流\",\"sha\":\"$SHA\"}" | \
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/contents/$FILE" --input -
             echo "clean-actions.yml 已删除"
           else
-            echo "文件不存在，跳过"
+            echo "文件不存在或获取 SHA 失败，跳过"
           fi
