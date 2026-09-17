@@ -25,11 +25,17 @@ jobs:
           echo "=== 删除后剩余运行数 ==="
           gh api "repos/$GITHUB_REPOSITORY/actions/runs?per_page=1" --jq '.total_count'
 
-      - name: Remove self workflow
+      - name: Remove self workflow via API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "hao728"
-          git config user.email "hao728@users.noreply.github.com"
-          git rm -f .github/workflows/clean-actions.yml
-          git commit -qm "删除 Actions 清理工作流"
-          git push origin main
-          echo "清理工作流已移除"
+          FILE=".github/workflows/clean-actions.yml"
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE" --jq '.sha' 2>/dev/null || echo "")
+          if [ -n "$SHA" ]; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/contents/$FILE" \
+              -f message="删除 Actions 清理工作流" \
+              -f sha="$SHA" >/dev/null
+            echo "clean-actions.yml 已删除"
+          else
+            echo "文件不存在，跳过"
+          fi
