@@ -1959,12 +1959,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
         case NM_CUSTOMDRAW: {
             LPNMLVCUSTOMDRAW lpcd = (LPNMLVCUSTOMDRAW)nmhdr;
             // 自绘用于所有视图（大图标需要多行文件名，详细信息需要自定义图标，小图标/列表需要自定义图标）
-            if (lpcd->nmcd.dwDrawStage == CDDS_PREPAINT) {
-                // 标准方式设置整个控件背景色（对 LVS_OWNERDATA 虚拟列表更可靠）
-                lpcd->clrTextBk = themeFieldBg();
-                lpcd->clrText = themeFieldText();
-                return CDRF_NOTIFYITEMDRAW;
-            }
+            if (lpcd->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
             if (lpcd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
                 HDC hdc = lpcd->nmcd.hdc;
                 int itemIdx = (int)lpcd->nmcd.dwItemSpec;
@@ -1979,13 +1974,6 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
 
                 BOOL selected = (ListView_GetItemState(p->hwndList, itemIdx, LVIS_SELECTED) & LVIS_SELECTED) != 0;
                 BOOL hovered = (itemIdx == hoveredItem);
-
-                // 深色主题：非选中项用主题背景色填充（默认 ListView 是白色）
-                if (!selected && !hovered) {
-                    HBRUSH bgBrush = CreateSolidBrush(themeFieldBg());
-                    FillRect(hdc, &rc, bgBrush);
-                    DeleteObject(bgBrush);
-                }
 
                 // 大图标视图自定义绘制：图标+多行文件名
                 if (p->viewStyle == STYLE_LARGE_ICON) {
@@ -2044,7 +2032,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     }
 
                     // 绘制多行文件名（图标下方，居中，自动换行，长单词也强制换行）
-                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : themeFieldText());
+                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
                     SetBkMode(hdc, TRANSPARENT);
                     HGDIOBJ oldFont = SelectObject(hdc, getUIFont());
                     RECT textR = {rc.left + 6, rc.top + 56, rc.right - 6, rc.bottom - 4};
@@ -2100,7 +2088,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         if (himl && item->icon >= 0)
                             ImageList_Draw(himl, item->icon, hdc, rc.left + 2, rc.top + (rowH-16)/2, ILD_TRANSPARENT);
                     }
-                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : themeFieldText());
+                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
                     SetBkMode(hdc, TRANSPARENT);
                     HGDIOBJ oldFont2 = SelectObject(hdc, getUIFont());
                     RECT textR2 = {rc.left + 22, rc.top, rc.right - 2, rc.bottom};
@@ -2158,7 +2146,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                             ImageList_Draw(himl, item->icon, hdc, rc.left + 2, iconY, ILD_TRANSPARENT);
                     }
                     // 文字：图标右侧，单行，省略号
-                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : themeFieldText());
+                    SetTextColor(hdc, selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
                     SetBkMode(hdc, TRANSPARENT);
                     HGDIOBJ oldFont3 = SelectObject(hdc, getUIFont());
                     RECT textR3 = {rc.left + 22, rc.top, rc.right - 2, rc.bottom};
@@ -2177,7 +2165,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                     FillRect(hdc, &rc, selBrush);
                     DeleteObject(selBrush);
                 } else {
-                    COLORREF winBg = themeFieldBg();
+                    COLORREF winBg = GetSysColor(COLOR_WINDOW);
                     if (hovered) {
                         // 悬停：将高亮颜色与窗口背景混合（30% 高亮）
 
@@ -2193,7 +2181,7 @@ LRESULT contentViewNotify(NMHDR* nmhdr) {
                         int adj = (r+g+b > 384) ? -12 : 16;  // light bg -> darker, dark bg -> lighter
                         bgColor = RGB(max(0,min(255,r+adj)), max(0,min(255,g+adj)), max(0,min(255,b+adj)));
                     } else bgColor = winBg;
-                    textColor = themeFieldText();
+                    textColor = GetSysColor(COLOR_WINDOWTEXT);
                     HBRUSH bgBrush = CreateSolidBrush(bgColor);
                     FillRect(hdc, &rc, bgBrush);
                     DeleteObject(bgBrush);
@@ -2696,8 +2684,6 @@ void setViewStyle(enum ViewStyle newViewStyle) {
     }
 
     SetWindowLongPtr(p->hwndList, GWL_STYLE, wndstyle);
-    // 深色主题：设置 ListView 控件背景色（空白区域）
-    ListView_SetBkColor(p->hwndList, themeFieldBg());
 
     p->viewStyle = newViewStyle;
     // 将视图样式持久化到注册表（重启后保留）
@@ -4814,9 +4800,6 @@ void cvRefreshLanguage(void) {
     lvc.mask = LVCF_TEXT;
     for (int i = 0; i < NUM_PANES; i++) {
         if (!panes[i].hwndList) continue;
-        // 深色主题：切换主题后重新设置 ListView 背景和文字色（控件属性不会因 InvalidateRect 自动更新）
-        ListView_SetBkColor(panes[i].hwndList, themeFieldBg());
-        ListView_SetTextColor(panes[i].hwndList, themeFieldText());
         lvc.pszText = lc_str.name;
         ListView_SetColumn(panes[i].hwndList, COLUMN_NAME_IDX, &lvc);
         lvc.pszText = lc_str.type;
@@ -4825,8 +4808,6 @@ void cvRefreshLanguage(void) {
         ListView_SetColumn(panes[i].hwndList, COLUMN_SIZE_IDX, &lvc);
         lvc.pszText = lc_str.date;
         ListView_SetColumn(panes[i].hwndList, COLUMN_DATE_IDX, &lvc);
-        // 强制完全重绘（虚拟列表背景色不会因 InvalidateRect 自动更新）
-        RedrawWindow(panes[i].hwndList, NULL, NULL, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
     updateStatusbar(activePane());
     InvalidateRect(hwndMain, NULL, TRUE);
@@ -4907,11 +4888,9 @@ static LRESULT CALLBACK extractProgressWndProc(HWND hwnd, UINT msg, WPARAM wPara
             HDC hdc = BeginPaint(hwnd, &ps);
             RECT rc;
             GetClientRect(hwnd, &rc);
-            HBRUSH bgBrush = CreateSolidBrush(themeFieldBg());
-            FillRect(hdc, &rc, bgBrush);
-            DeleteObject(bgBrush);
+            FillRect(hdc, &rc, (HBRUSH)(COLOR_WINDOW + 1));
             // 标题
-            SetTextColor(hdc, themeFieldText());
+            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
             SetBkMode(hdc, TRANSPARENT);
             HFONT hFont = CreateFontW(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -5601,6 +5580,21 @@ static HRESULT STDMETHODCALLTYPE DropTarget_Drop(IDropTarget* This, IDataObject*
         }
 
         UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
+
+        // 拖拽确认：防止误操作导致文件被随意复制
+        if (count > 0 && dstDir[0]) {
+            wchar_t confirmMsg[256] = {0};
+            const wchar_t* dirName = wcsrchr(dstDir, L'\\');
+            dirName = dirName ? dirName + 1 : dstDir;
+            swprintf_s(confirmMsg, 256, L"确定将 %d 个文件复制到「%ls」？", count, dirName);
+            if (!showConfirmDialog(hwndMain, L"确认复制", confirmMsg)) {
+                DragFinish(hDrop);
+                ReleaseStgMedium(&stg);
+                *pdwEffect = DROPEFFECT_NONE;
+                return S_OK;
+            }
+        }
+
         for (UINT i = 0; i < count; i++) {
             wchar_t srcPath[MAX_PATH] = {0};
             DragQueryFileW(hDrop, i, srcPath, MAX_PATH);

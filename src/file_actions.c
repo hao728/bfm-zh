@@ -7,7 +7,9 @@
 enum Msg {
     MSG_CLOSE = WM_APP,
     MSG_NAVIGATE_REFRESH,
-    MSG_PROGRESS
+    MSG_PROGRESS,
+    MSG_CONFIRM_OVERWRITE,
+    MSG_SHOW_RESULT
 };
 
 enum FileAction {
@@ -18,6 +20,22 @@ enum FileAction {
     ACTION_ISO_EXTRACT
 };
 
+// 覆盖确认模式
+enum OverwriteMode {
+    OVERWRITE_ASK = 0,     // 首次询问
+    OVERWRITE_ALL = 1,     // 全部覆盖
+    SKIP_ALL = 2,          // 全部跳过
+    OVERWRITE_EACH = 3     // 逐个决定
+};
+
+// 覆盖确认返回值
+#define OVERWRITE_RESULT_ALL    1
+#define OVERWRITE_RESULT_SKIP   2
+#define OVERWRITE_RESULT_EACH   3
+#define OVERWRITE_RESULT_CANCEL 4
+#define OVERWRITE_RESULT_ONE_YES 5
+#define OVERWRITE_RESULT_ONE_NO  6
+
 struct ActionData {
     enum FileAction action;
     wchar_t** srcPaths;
@@ -26,6 +44,11 @@ struct ActionData {
     bool cancel;
     uint64_t totalBytes;
     uint64_t doneBytes;
+    wchar_t currentFile[MAX_PATH];   // 当前正在操作的文件名
+    wchar_t** failedFiles;           // 失败的文件列表
+    int numFailed;                   // 失败数量
+    int successCount;                // 成功数量
+    enum OverwriteMode overwriteMode; // 覆盖模式
 };
 
 static HWND hwndDlg;
@@ -48,7 +71,7 @@ static void postProgress() {
     if (pct > 100) pct = 100;
     if (pct != g_lastPct) {
         g_lastPct = pct;
-        PostMessage(hwndDlg, MSG_PROGRESS, (WPARAM)pct, 0);
+        PostMessage(hwndDlg, MSG_PROGRESS, (WPARAM)pct, (LPARAM)g_activeAction->currentFile);
     }
 }
 
@@ -81,10 +104,42 @@ static void freeActionData() {
             actionData->numSrcPaths = 0;
             MEMFREE(actionData->srcPaths);
         }
+        // 释放失败文件列表
+        if (actionData->failedFiles) {
+            for (int i = 0; i < actionData->numFailed; i++) {
+                MEMFREE(actionData->failedFiles[i]);
+            }
+            MEMFREE(actionData->failedFiles);
+        }
         
         MEMFREE(actionData->dstPath);
         MEMFREE(actionData);
     }
+}
+
+// 覆盖确认对话框过程（全局选择：全部覆盖/全部跳过/逐个决定/取消）
+static INT_PTR CALLBACK OverwriteDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_INITDIALOG: {
+            const wchar_t* filePath = (const wchar_t*)lParam;
+            if (filePath) {
+                wchar_t msg[512] = {0};
+                swprintf_s(msg, 512, L"目标位置已存在同名文件：\n%ls\n\n是否覆盖？", filePath);
+                SetWindowText(GetDlgItem(hwndDlg, IDC_OVERWRITE_MSG), msg);
+            }
+            return (INT_PTR)TRUE;
+        }
+        case WM_COMMAND: {
+            switch (LOWORD(wParam)) {
+                case IDOW_OVERWRITE_ALL: EndDialog(hwndDlg, OVERWRITE_RESULT_ALL); return (INT_PTR)TRUE;
+                case IDOW_SKIP_ALL:      EndDialog(hwndDlg, OVERWRITE_RESULT_SKIP); return (INT_PTR)TRUE;
+                case IDOW_EACH:          EndDialog(hwndDlg, OVERWRITE_RESULT_EACH); return (INT_PTR)TRUE;
+                case IDCANCEL:           EndDialog(hwndDlg, OVERWRITE_RESULT_CANCEL); return (INT_PTR)TRUE;
+            }
+            break;
+        }
+    }
+    return (INT_PTR)FALSE;
 }
 
 INT_PTR CALLBACK FileActionDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -103,6 +158,7 @@ INT_PTR CALLBACK FileActionDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPA
             
             SendDlgItemMessage(hwndDlg, IDC_PROGRESS, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
             SendDlgItemMessage(hwndDlg, IDC_PROGRESS, PBM_SETPOS, 0, 0);
+            SetWindowText(GetDlgItem(hwndDlg, IDC_CURRENT_FILE), L"");
 
             HWND hwndLabel = GetDlgItem(hwndDlg, IDC_LABEL);
             switch (actionData->action) {
@@ -156,7 +212,72 @@ INT_PTR CALLBACK FileActionDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPA
             break;
         }
         case MSG_PROGRESS: {
-            SendDlgItemMessage(hwndDlg, IDC_PROGRESS, PBM_SETPOS, wParam, 0);
+            if (wParam >= 0) {
+                SendDlgItemMessage(hwndDlg, IDC_PROGRESS, PBM_SETPOS, wParam, 0);
+            }
+            // 更新当前文件名（lParam 传的是文件名指针）
+            if (lParam) {
+                SetWindowText(GetDlgItem(hwndDlg, IDC_CURRENT_FILE), (const wchar_t*)lParam);
+            }
+            break;
+        }
+        case MSG_CONFIRM_OVERWRITE: {
+            // 后台线程请求覆盖确认，wParam 是目标文件路径指针
+            const wchar_t* dstPath = (const wchar_t*)wParam;
+            if (!actionData) return 0;
+
+            if (actionData->overwriteMode == OVERWRITE_ALL) {
+                return (INT_PTR)OVERWRITE_RESULT_ALL;
+            }
+            if (actionData->overwriteMode == SKIP_ALL) {
+                return (INT_PTR)OVERWRITE_RESULT_SKIP;
+            }
+            if (actionData->overwriteMode == OVERWRITE_EACH) {
+                // 逐个决定：用 Yes/No 对话框，Yes=覆盖, No=跳过
+                wchar_t msg[512] = {0};
+                swprintf_s(msg, 512, L"文件已存在：\n%ls\n\n是否覆盖？", dstPath);
+                if (showConfirmDialog(hwndDlg, L"确认覆盖", msg)) {
+                    return (INT_PTR)OVERWRITE_RESULT_ONE_YES;
+                }
+                return (INT_PTR)OVERWRITE_RESULT_ONE_NO;
+            }
+            // OVERWRITE_ASK：弹全局选择对话框
+            INT_PTR result = DialogBoxParam(globalHInstance, MAKEINTRESOURCE(IDD_OVERWRITE),
+                                            hwndDlg, &OverwriteDialogProc, (LPARAM)dstPath);
+            if (result == OVERWRITE_RESULT_ALL) {
+                actionData->overwriteMode = OVERWRITE_ALL;
+            } else if (result == OVERWRITE_RESULT_SKIP) {
+                actionData->overwriteMode = SKIP_ALL;
+            } else if (result == OVERWRITE_RESULT_EACH) {
+                actionData->overwriteMode = OVERWRITE_EACH;
+                // 逐个决定模式下，当前这个文件也要问一次
+                wchar_t msg[512] = {0};
+                swprintf_s(msg, 512, L"文件已存在：\n%ls\n\n是否覆盖？", dstPath);
+                if (showConfirmDialog(hwndDlg, L"确认覆盖", msg)) {
+                    return (INT_PTR)OVERWRITE_RESULT_ONE_YES;
+                }
+                return (INT_PTR)OVERWRITE_RESULT_ONE_NO;
+            }
+            return result; // CANCEL 或其他
+        }
+        case MSG_SHOW_RESULT: {
+            // 操作完成，弹汇总提示
+            if (actionData) {
+                wchar_t msg[1024] = {0};
+                if (actionData->numFailed > 0) {
+                    int len = swprintf_s(msg, 1024, L"操作完成。成功 %d 个，失败 %d 个。\n\n失败文件：",
+                                         actionData->successCount, actionData->numFailed);
+                    for (int i = 0; i < actionData->numFailed && len < 900; i++) {
+                        const wchar_t* name = wcsrchr(actionData->failedFiles[i], L'\\');
+                        name = name ? name + 1 : actionData->failedFiles[i];
+                        len += swprintf_s(msg + len, 1024 - len, L"\n%ls", name);
+                    }
+                    MessageBoxW(hwndDlg, msg, L"操作完成", MB_OK | MB_ICONWARNING);
+                } else {
+                    swprintf_s(msg, 1024, L"操作完成。成功 %d 个文件。", actionData->successCount);
+                    MessageBoxW(hwndDlg, msg, L"操作完成", MB_OK | MB_ICONINFORMATION);
+                }
+            }
             break;
         }
     }
@@ -387,6 +508,10 @@ static DWORD WINAPI fileActionTask(void* param) {
 
     g_activeAction = actionData;
     g_lastPct = -1;
+    actionData->successCount = 0;
+    actionData->numFailed = 0;
+    actionData->failedFiles = NULL;
+    actionData->overwriteMode = OVERWRITE_ASK;
 
     if (actionData->action == ACTION_ISO_EXTRACT) {
         wchar_t* srcPath = actionData->srcPaths[0];
@@ -406,6 +531,7 @@ static DWORD WINAPI fileActionTask(void* param) {
             extractAllISOFiles(iso, false, "/", actionData->dstPath);
             iso9660_close(iso);
         }
+        actionData->successCount = 1;
     }
     else {
         DWORD lastTime = GetTickCount();
@@ -419,26 +545,63 @@ static DWORD WINAPI fileActionTask(void* param) {
 
         for (int i = 0; i < actionData->numSrcPaths && !actionData->cancel; i++) {
             wchar_t* src = actionData->srcPaths[i];
+
+            // 更新当前文件名显示
+            const wchar_t* name = wcsrchr(src, L'\\');
+            name = name ? name + 1 : src;
+            wcscpy_s(actionData->currentFile, MAX_PATH, name);
+            PostMessage(hwndDlg, MSG_PROGRESS, (WPARAM)-1, (LPARAM)actionData->currentFile);
+
             if (actionData->action == ACTION_DELETE) {
-                if (!bfmDeletePath(src)) break;
+                if (bfmDeletePath(src)) {
+                    actionData->successCount++;
+                } else {
+                    // 记录失败文件
+                    actionData->failedFiles = realloc(actionData->failedFiles, (actionData->numFailed + 1) * sizeof(wchar_t*));
+                    int slen = (int)wcslen(src);
+                    actionData->failedFiles[actionData->numFailed] = calloc(slen + 1, sizeof(wchar_t));
+                    wcscpy_s(actionData->failedFiles[actionData->numFailed], slen + 1, src);
+                    actionData->numFailed++;
+                }
             }
             else if (actionData->action == ACTION_COPY || actionData->action == ACTION_MOVE) {
                 wchar_t dst[MAX_PATH] = {0};
                 bfmJoinDest(actionData->dstPath, src, dst);
 
-                // 粘贴到同一目录在这里是空操作（shell 会创建“副本”）；直接跳过。
-
+                // 粘贴到同一目录：直接跳过（用户选了A方案）
                 if (_wcsicmp(src, dst) == 0) continue;
+
+                // 检测目标是否存在，存在则请求覆盖确认
+                if (GetFileAttributesW(dst) != INVALID_FILE_ATTRIBUTES) {
+                    INT_PTR result = SendMessage(hwndDlg, MSG_CONFIRM_OVERWRITE, (WPARAM)dst, 0);
+                    if (result == OVERWRITE_RESULT_CANCEL) {
+                        actionData->cancel = true;
+                        break;
+                    }
+                    if (result == OVERWRITE_RESULT_SKIP || result == OVERWRITE_RESULT_ONE_NO) {
+                        continue; // 跳过此文件
+                    }
+                    // OVERWRITE_RESULT_ALL / OVERWRITE_RESULT_ONE_YES → 继续执行（覆盖）
+                }
 
                 bool ok = (actionData->action == ACTION_COPY) ? bfmCopyPath(src, dst)
                                                               : bfmMovePath(src, dst);
-                if (!ok) break;
+                if (ok) {
+                    actionData->successCount++;
+                } else {
+                    // 记录失败文件，不中断
+                    actionData->failedFiles = realloc(actionData->failedFiles, (actionData->numFailed + 1) * sizeof(wchar_t*));
+                    int slen = (int)wcslen(src);
+                    actionData->failedFiles[actionData->numFailed] = calloc(slen + 1, sizeof(wchar_t));
+                    wcscpy_s(actionData->failedFiles[actionData->numFailed], slen + 1, src);
+                    actionData->numFailed++;
+                }
             }
 
             // 移动/删除：基于计数的进度（复制通过回调基于字节）。
-
             if (actionData->action != ACTION_COPY) {
-                PostMessage(hwndDlg, MSG_PROGRESS, (WPARAM)((i + 1) * 100 / actionData->numSrcPaths), 0);
+                int pct = (i + 1) * 100 / actionData->numSrcPaths;
+                PostMessage(hwndDlg, MSG_PROGRESS, (WPARAM)pct, (LPARAM)actionData->currentFile);
             }
 
             DWORD currTime = GetTickCount();
@@ -448,7 +611,9 @@ static DWORD WINAPI fileActionTask(void* param) {
             }
         }
     }
-    
+
+    // 操作完成：弹汇总提示（在主线程）
+    SendMessage(hwndDlg, MSG_SHOW_RESULT, 0, 0);
     SendMessage(hwndDlg, MSG_CLOSE, 0, 0);
     return 0;
 }

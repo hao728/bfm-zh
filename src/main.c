@@ -694,16 +694,6 @@ static void applyThemeAndRefresh(void) {
     createMainMenu();
     // 刷新内容区（主题颜色变化）
     cvRefreshLanguage();
-    // 更新 TreeView 背景和文字颜色（静态设置，切换主题后需重新赋值）
-    if (hwndTreeview) {
-        TreeView_SetBkColor(hwndTreeview, themeFieldBg());
-        TreeView_SetTextColor(hwndTreeview, themeFieldText());
-        RedrawWindow(hwndTreeview, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
-    }
-    // 强制工具栏重绘（WM_ERASEBKGND 重画主题色背景）
-    if (hwndToolbar) {
-        RedrawWindow(hwndToolbar, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
-    }
     // 重绘标题栏、工具栏、状态栏、导航栏
     InvalidateRect(hwndMain, NULL, TRUE);
     DrawMenuBar(hwndMain);
@@ -1098,6 +1088,8 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 }
             } else if (previewText[0]) {
                 // 文本文件：在带边框的框中显示前几行。
+                // 修复：不再硬编码 Consolas（精简 Winlator 容器无此字体，回退字体不支持中文导致空白）
+                // 改用 getUIFont()，它有完整的中日韩字体回退链。
 
                 HBRUSH boxBg = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
                 RECT boxR = {margin, y, rc.right - margin, y + mediaH};
@@ -1106,16 +1098,12 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 HPEN oldPen = (HPEN)SelectObject(hdc, boxPen);
                 Rectangle(hdc, boxR.left, boxR.top, boxR.right, boxR.bottom);
                 SelectObject(hdc, oldPen); DeleteObject(boxPen);
-                HFONT hMono = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                    DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
-                HFONT oldf = (HFONT)SelectObject(hdc, hMono ? hMono : getUIFont());
+                HFONT oldf = (HFONT)SelectObject(hdc, getUIFont());
                 SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
                 SetBkMode(hdc, TRANSPARENT);
                 RECT tr = {margin + 4, y + 2, rc.right - margin - 4, y + mediaH - 2};
                 DrawTextW(hdc, previewText, -1, &tr, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
                 SelectObject(hdc, oldf);
-                if (hMono) DeleteObject(hMono);
             } else if (previewCustomBmp) {
                 // 自定义图标（与主视图图标识别联动）：居中绘制96x96
                 HDC memDC = CreateCompatibleDC(hdc);
