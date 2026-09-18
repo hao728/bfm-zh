@@ -31,7 +31,7 @@ enum OverwriteMode {
 // 覆盖确认返回值
 #define OVERWRITE_RESULT_ALL    1
 #define OVERWRITE_RESULT_SKIP   2
-#define OVERWRITE_RESULT_EACH   3
+#define OVERWRITE_RESULT_EACH   7
 #define OVERWRITE_RESULT_CANCEL 4
 #define OVERWRITE_RESULT_ONE_YES 5
 #define OVERWRITE_RESULT_ONE_NO  6
@@ -240,9 +240,10 @@ INT_PTR CALLBACK FileActionDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPA
             }
             if (actionData->overwriteMode == OVERWRITE_EACH) {
                 // 逐个决定：用 Yes/No 对话框，Yes=覆盖, No=跳过
+                // 父窗口用 hwndMain 避免被进度窗遮挡
                 wchar_t msg[512] = {0};
                 swprintf_s(msg, 512, L"文件已存在：\n%ls\n\n是否覆盖？", dstPath);
-                if (showConfirmDialog(hwndDlg, L"确认覆盖", msg)) {
+                if (showConfirmDialog(hwndMain, L"确认覆盖", msg)) {
                     return (INT_PTR)OVERWRITE_RESULT_ONE_YES;
                 }
                 return (INT_PTR)OVERWRITE_RESULT_ONE_NO;
@@ -470,6 +471,18 @@ static bool bfmCopyDirectory(const wchar_t* src, const wchar_t* dst) {
             wchar_t s[MAX_PATH] = {0}, d[MAX_PATH] = {0};
             swprintf_s(s, MAX_PATH, L"%ls\\%ls", src, wfd.cFileName);
             swprintf_s(d, MAX_PATH, L"%ls\\%ls", dst, wfd.cFileName);
+
+            // 递归复制时也检查覆盖确认（修复"逐个决定"模式bug）
+            if (g_activeAction && GetFileAttributesW(d) != INVALID_FILE_ATTRIBUTES) {
+                if (g_activeAction->overwriteMode == SKIP_ALL) continue;
+                if (g_activeAction->overwriteMode == OVERWRITE_EACH) {
+                    INT_PTR r = SendMessage(hwndDlg, MSG_CONFIRM_OVERWRITE, (WPARAM)d, 0);
+                    if (r == OVERWRITE_RESULT_CANCEL) { FindClose(h); return false; }
+                    if (r == OVERWRITE_RESULT_SKIP || r == OVERWRITE_RESULT_ONE_NO) continue;
+                }
+                // OVERWRITE_ALL 或 ONE_YES → 继续覆盖
+            }
+
             if (!bfmCopyPath(s, d)) ok = false;
         }
         while (FindNextFileW(h, &wfd));
