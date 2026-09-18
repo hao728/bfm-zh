@@ -73,17 +73,22 @@ echo [2/5] Checking 7-Zip...
 set "SEVENZIP_DIR=Z:\opt\apps\7-Zip"
 if exist "%SEVENZIP_DIR%\7z.exe" (
     echo       7-Zip found
-) else if exist "%SCRIPT_DIR%7z*.exe" (
-    echo       Installing 7-Zip (silent)...
+) else if exist "%SCRIPT_DIR%7z.exe" (
+    echo       Installing 7-Zip (portable)...
     if not exist "%SEVENZIP_DIR%" mkdir "%SEVENZIP_DIR%"
-    for %%f in ("%SCRIPT_DIR%7z*.exe") do "%%f" /S /D=%SEVENZIP_DIR% >nul 2>&1
+    copy /y "%SCRIPT_DIR%7z.exe" "%SEVENZIP_DIR%\" >nul
+    if exist "%SCRIPT_DIR%7z.dll" copy /y "%SCRIPT_DIR%7z.dll" "%SEVENZIP_DIR%\" >nul
     if exist "%SEVENZIP_DIR%\7z.exe" (
         echo       7-Zip installed
     ) else (
-        echo       [Warning] 7-Zip install may have failed, please check manually
+        echo       [Warning] 7-Zip copy failed
     )
+) else if exist "%SCRIPT_DIR%7z*.exe" (
+    echo       Launching 7-Zip installer (please install manually to Z:\opt\apps\7-Zip)...
+    for %%f in ("%SCRIPT_DIR%7z*.exe") do start "" "%%f"
+    echo       [Info] 7-Zip installer opened, install it to Z:\opt\apps\7-Zip
 ) else (
-    echo       [Notice] 7-Zip installer not found, skip
+    echo       [Notice] 7-Zip not found, compression features will be limited
 )
 echo.
 
