@@ -21,7 +21,7 @@ jobs:
       - name: Install mingw-w64 (x86-64) toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+          sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 p7zip-full
 
       - name: Build wfm.exe (x86-64)
         run: |
@@ -46,25 +46,31 @@ jobs:
           file wfm.exe
           ls -l wfm.exe libcdio.dll
 
-      - name: Fetch latest 7-Zip (auto official release)
+      - name: Fetch and extract 7-Zip (official, portable files)
         run: |
           set -euxo pipefail
-          # 从 7-Zip 官方 GitHub 仓库自动获取最新版本号（26.03 → 文件名 7z2603-x64.exe）
+          # 从 7-Zip 官方 GitHub 仓库自动获取最新版本号
           TAG=$(curl -s --max-time 20 https://api.github.com/repos/ip7z/7zip/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*: "\(.*\)".*/\1/')
           if [ -z "$TAG" ]; then TAG="26.03"; echo "API 获取失败，回退到 26.03"; fi
           VER=$(echo "$TAG" | tr -d '.')
           URL="https://github.com/ip7z/7zip/releases/download/${TAG}/7z${VER}-x64.exe"
-          echo "下载 7-Zip ${TAG} (Winlator x64): $URL"
-          curl -fL --retry 3 --max-time 120 -o "7z${VER}-x64.exe" "$URL"
-          ls -l 7z*.exe
+          echo "下载 7-Zip ${TAG}: $URL"
+          curl -fL --retry 3 --max-time 120 -o "/tmp/7zsetup.exe" "$URL"
+          # 解压 NSIS 安装包，得到完整已安装文件
+          mkdir -p /tmp/7z-extract
+          7z x /tmp/7zsetup.exe -o/tmp/7z-extract -y
+          # 清理 NSIS 插件目录（不需要）
+          rm -rf /tmp/7z-extract/\$PLUGINSDIR 2>/dev/null || true
+          echo "=== 解压后的 7-Zip 文件 ==="
+          ls -la /tmp/7z-extract/
 
       - name: Package build zip (with install scripts)
         run: |
           mkdir -p pkg
           cp wfm.exe libcdio.dll pkg/
-          # 复制 7-Zip 安装包（安装脚本会自动静默安装到 Z:\opt\apps\7-Zip）
-          cp 7z*-x64.exe pkg/ 2>/dev/null || true
-          # 复制安装脚本（根目录为新版）
+          # 复制完整 7-Zip 已安装文件（安装脚本直接复制到 Z:\opt\apps\7-Zip）
+          cp -r /tmp/7z-extract pkg/7-Zip/
+          # 复制安装脚本
           if [ -f 安装.bat ]; then cp 安装.bat pkg/; fi
           if [ -f 卸载还原.bat ]; then cp 卸载还原.bat pkg/; fi
           cd pkg && zip -r ../bfm-zh-x64.zip . && cd ..
