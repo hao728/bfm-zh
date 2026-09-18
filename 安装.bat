@@ -74,11 +74,16 @@ set "SEVENZIP_DIR=Z:\opt\apps\7-Zip"
 if exist "%SEVENZIP_DIR%\7z.exe" (
     echo       7-Zip found
 ) else if exist "%SCRIPT_DIR%7z*.exe" (
-    echo       Installing 7-Zip...
-    for %%f in ("%SCRIPT_DIR%7z*.exe") do "%%f" /S /D="%SEVENZIP_DIR%" >nul 2>&1
-    echo       7-Zip installed
+    echo       Installing 7-Zip (silent)...
+    if not exist "%SEVENZIP_DIR%" mkdir "%SEVENZIP_DIR%"
+    for %%f in ("%SCRIPT_DIR%7z*.exe") do "%%f" /S /D=%SEVENZIP_DIR% >nul 2>&1
+    if exist "%SEVENZIP_DIR%\7z.exe" (
+        echo       7-Zip installed
+    ) else (
+        echo       [Warning] 7-Zip install may have failed, please check manually
+    )
 ) else (
-    echo       [Notice] 7-Zip not found
+    echo       [Notice] 7-Zip installer not found, skip
 )
 echo.
 

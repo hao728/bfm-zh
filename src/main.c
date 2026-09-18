@@ -852,26 +852,44 @@ static void loadPreviewText(const wchar_t* path) {
     }
     buf[read] = 0;
     CloseHandle(hFile);
-    // 如果存在 UTF-8 BOM 则跳过。
 
-    int skip = (read >= 3 && (unsigned char)buf[0] == 0xEF &&
-                (unsigned char)buf[1] == 0xBB && (unsigned char)buf[2] == 0xBF) ? 3 : 0;
-    // 首先尝试 UTF-8；回退到 ANSI。
-
-    int len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                                  buf + skip, (int)(read - skip), NULL, 0);
-    if (len <= 0) {
-        len = MultiByteToWideChar(CP_ACP, 0, buf + skip, (int)(read - skip), NULL, 0);
-        if (len <= 0) return;
-        MultiByteToWideChar(CP_ACP, 0, buf + skip, (int)(read - skip),
-                            previewText, 2047);
-    } else {
-        MultiByteToWideChar(CP_UTF8, 0, buf + skip, (int)(read - skip),
-                            previewText, 2047);
+    // UTF-16 LE BOM (FF FE)：直接复制为宽字符
+    if (read >= 2 && (unsigned char)buf[0] == 0xFF && (unsigned char)buf[1] == 0xFE) {
+        int chars = (int)((read - 2) / 2);
+        if (chars > 2047) chars = 2047;
+        for (int i = 0; i < chars; i++) {
+            previewText[i] = (wchar_t)((unsigned char)buf[2 + i*2] | ((unsigned char)buf[3 + i*2] << 8));
+        }
+        previewText[chars] = L'\0';
     }
-    previewText[2047] = L'\0';
-    // 将除制表符/换行符外的控制字符替换为空格。
-
+    // UTF-16 BE BOM (FE FF)：交换字节序
+    else if (read >= 2 && (unsigned char)buf[0] == 0xFE && (unsigned char)buf[1] == 0xFF) {
+        int chars = (int)((read - 2) / 2);
+        if (chars > 2047) chars = 2047;
+        for (int i = 0; i < chars; i++) {
+            previewText[i] = (wchar_t)(((unsigned char)buf[2 + i*2] << 8) | (unsigned char)buf[3 + i*2]);
+        }
+        previewText[chars] = L'\0';
+    }
+    else {
+        // UTF-8 BOM 跳过
+        int skip = (read >= 3 && (unsigned char)buf[0] == 0xEF &&
+                    (unsigned char)buf[1] == 0xBB && (unsigned char)buf[2] == 0xBF) ? 3 : 0;
+        // 先尝试 UTF-8，失败回退 ANSI
+        int len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                      buf + skip, (int)(read - skip), NULL, 0);
+        if (len <= 0) {
+            len = MultiByteToWideChar(CP_ACP, 0, buf + skip, (int)(read - skip), NULL, 0);
+            if (len <= 0) return;
+            MultiByteToWideChar(CP_ACP, 0, buf + skip, (int)(read - skip),
+                                previewText, 2047);
+        } else {
+            MultiByteToWideChar(CP_UTF8, 0, buf + skip, (int)(read - skip),
+                                previewText, 2047);
+        }
+        previewText[2047] = L'\0';
+    }
+    // 将除制表符/换行符外的控制字符替换为空格
     for (wchar_t* p = previewText; *p; p++) {
         if (*p < L' ' && *p != L'\t' && *p != L'\n' && *p != L'\r') *p = L' ';
     }
@@ -1087,19 +1105,17 @@ static LRESULT CALLBACK PreviewWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                                                0, ph, pw, -ph, NULL);
                 }
             } else if (previewText[0]) {
-                // 文本文件：在带边框的框中显示前几行。
-                // 修复：不再硬编码 Consolas（精简 Winlator 容器无此字体，回退字体不支持中文导致空白）
-                // 改用 getUIFont()，它有完整的中日韩字体回退链。
-
-                HBRUSH boxBg = CreateSolidBrush(GetSysColor(COLOR_WINDOW));
+                // 文本文件：在带边框的框中显示前几行
+                // 颜色用主题色，确保深色主题下文本可见
+                HBRUSH boxBg = CreateSolidBrush(themeFaceBg());
                 RECT boxR = {margin, y, rc.right - margin, y + mediaH};
                 FillRect(hdc, &boxR, boxBg); DeleteObject(boxBg);
-                HPEN boxPen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_3DFACE));
+                HPEN boxPen = CreatePen(PS_SOLID, 1, themeFaceLine());
                 HPEN oldPen = (HPEN)SelectObject(hdc, boxPen);
                 Rectangle(hdc, boxR.left, boxR.top, boxR.right, boxR.bottom);
                 SelectObject(hdc, oldPen); DeleteObject(boxPen);
                 HFONT oldf = (HFONT)SelectObject(hdc, getUIFont());
-                SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+                SetTextColor(hdc, themeFaceText());
                 SetBkMode(hdc, TRANSPARENT);
                 RECT tr = {margin + 4, y + 2, rc.right - margin - 4, y + mediaH - 2};
                 DrawTextW(hdc, previewText, -1, &tr, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
