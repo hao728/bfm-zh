@@ -121,11 +121,17 @@ static void freeActionData() {
 static INT_PTR CALLBACK OverwriteDialogProc(HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_INITDIALOG: {
+            // 动态设置中文文字，避免 resource.rc 编码导致乱码
+            SetWindowTextW(hwndDlg, L"确认覆盖");
+            SetWindowTextW(GetDlgItem(hwndDlg, IDOW_OVERWRITE_ALL), L"全部覆盖");
+            SetWindowTextW(GetDlgItem(hwndDlg, IDOW_SKIP_ALL), L"全部跳过");
+            SetWindowTextW(GetDlgItem(hwndDlg, IDOW_EACH), L"逐个决定");
+            SetWindowTextW(GetDlgItem(hwndDlg, IDCANCEL), L"取消");
             const wchar_t* filePath = (const wchar_t*)lParam;
             if (filePath) {
                 wchar_t msg[512] = {0};
                 swprintf_s(msg, 512, L"目标位置已存在同名文件：\n%ls\n\n是否覆盖？", filePath);
-                SetWindowText(GetDlgItem(hwndDlg, IDC_OVERWRITE_MSG), msg);
+                SetWindowTextW(GetDlgItem(hwndDlg, IDC_OVERWRITE_MSG), msg);
             }
             return (INT_PTR)TRUE;
         }
